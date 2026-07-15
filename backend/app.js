@@ -19,27 +19,30 @@ const port = process.env.PORT || 3000;
 
 // Allowed frontend origins
 const allowedOrigins = [
-    "https://chatting-azure-five.vercel.app/",
+    "https://chatting-azure-five.vercel.app",
     "http://127.0.0.1:5173",
 ];
 
-const isAllowedOrigin = (origin) => {
-    if (!origin) return true;
-    if (allowedOrigins.includes(origin)) return true;
-    return /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+):517\d+$/.test(origin);
-};
+
 
 // CORS middleware
 app.use(
     cors({
         origin: (origin, callback) => {
-            if (isAllowedOrigin(origin)) {
-                callback(null, true);
-            } else {
-                callback(new Error("Not allowed by CORS"));
+            // Allow requests with no origin (Postman, mobile apps, curl)
+            if (!origin) {
+                return callback(null, true);
             }
+
+            if (allowedOrigins.includes(origin)) {
+                return callback(null, true);
+            }
+
+            return callback(new Error(`CORS Error: ${origin} is not allowed`));
         },
-        credentials: true
+        credentials: true,
+        methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allowedHeaders: ["Content-Type", "Authorization"],
     })
 );
 
