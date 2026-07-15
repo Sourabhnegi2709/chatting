@@ -1,5 +1,5 @@
 
-const server = 'http://localhost:3000' ;
+const server = 'https://chatting-us36.onrender.com' ;
 
 
 export default server;
