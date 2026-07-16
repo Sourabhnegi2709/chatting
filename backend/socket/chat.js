@@ -15,10 +15,8 @@ const connectToSocket = (server) => {
         cors: {
             origin: (origin, callback) => {
                 const allowedOrigins = [
-                    'http://localhost:5173',
-                    'http://localhost:5174',
-                    'http://127.0.0.1:5173',
-                    'http://127.0.0.1:5174',
+                    'https://chatting-azure-five.vercel.app',
+
                 ];
                 if (!origin || allowedOrigins.includes(origin) || /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+):517\d+$/.test(origin)) {
                     callback(null, true);
