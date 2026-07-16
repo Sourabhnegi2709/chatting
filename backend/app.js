@@ -13,72 +13,104 @@ dotenv.config();
 const app = express();
 const server = createServer(app);
 
+// Socket.IO
 connectToSocket(server);
 
-const port = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000;
 
-// Allowed frontend origins
+/* ===========================
+   CORS Configuration
+=========================== */
+
 const allowedOrigins = [
-    "https://chatting-azure-five.vercel.app",
-    "http://127.0.0.1:5173",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "https://chatting-azure-five.vercel.app",
 ];
 
-
-
-// CORS middleware
 app.use(
-    cors({
-        origin: (origin, callback) => {
-            // Allow requests with no origin (Postman, mobile apps, curl)
-            if (!origin) {
-                return callback(null, true);
-            }
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests without Origin (Postman, mobile apps, curl)
+      if (!origin) {
+        return callback(null, true);
+      }
 
-            if (allowedOrigins.includes(origin)) {
-                return callback(null, true);
-            }
+      // Allow localhost, production, and all Vercel preview deployments
+      if (
+        allowedOrigins.includes(origin) ||
+        origin.endsWith(".vercel.app")
+      ) {
+        return callback(null, true);
+      }
 
-            return callback(new Error(`CORS Error: ${origin} is not allowed`));
-        },
-        credentials: true,
-        methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allowedHeaders: ["Content-Type", "Authorization"],
-    })
+      console.error("❌ Blocked by CORS:", origin);
+
+      return callback(new Error(`CORS Error: ${origin} is not allowed`));
+    },
+
+    credentials: true,
+
+    methods: [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS",
+    ],
+
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+    ],
+  })
 );
 
-// Middleware
+/* ===========================
+   Middlewares
+=========================== */
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// Routes
+/* ===========================
+   Routes
+=========================== */
+
 app.use("/api/users", userRoute);
 
-// Health route
+/* ===========================
+   Health Check
+=========================== */
+
 app.get("/", (req, res) => {
-    res.send("Server is running");
+  res.status(200).json({
+    success: true,
+    message: "🚀 Chatting Backend is Running",
+  });
 });
 
-// Start server
-const startServer = async () => {
-    try {
-        const dbConnected = await connectDB();
-        if (!dbConnected) {
-            console.warn('\n⚠️  WARNING: Database connection failed!');
-            console.warn('   Users created will be LOST on server restart.');
-            console.warn('   This is NOT a production-ready setup.\n');
-        }
-    } catch (err) {
-        console.error("❌ Database connection warning:", err.message);
-    }
+/* ===========================
+   Database + Server Start
+=========================== */
 
-    server.listen(port, () => {
-        console.log(`🚀 Server running on port ${port}`);
-        console.log(`🔗 Socket.IO listening on http://localhost:${port}`);
+const startServer = async () => {
+  try {
+    await connectDB();
+
+    server.listen(PORT, () => {
+      console.log("=================================");
+      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`🌐 Environment : ${process.env.NODE_ENV || "development"}`);
+      console.log("=================================");
     });
+  } catch (error) {
+    console.error("❌ Failed to start server");
+    console.error(error);
+    process.exit(1);
+  }
 };
 
-startServer().catch((err) => {
-    console.error("❌ Server startup error:", err);
-    process.exit(1);
-});
+startServer();
