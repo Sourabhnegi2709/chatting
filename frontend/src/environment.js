@@ -1,5 +1,4 @@
 
-const server = 'https://chatting-us36.onrender.com' ;
-
+const server = 'https://chatting-1-uhex.onrender.com' ;
 
 export default server;
