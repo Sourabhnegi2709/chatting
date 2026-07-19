@@ -1,116 +1,121 @@
-import cookieParser from "cookie-parser";
-import cors from "cors";
-import dotenv from "dotenv";
-import express from "express";
-import { createServer } from "node:http";
+import compression from 'compression';
+import cookieParser from 'cookie-parser';
+import cors from 'cors';
+import express from 'express';
+import helmet from 'helmet';
+import morgan from 'morgan';
+import { createServer } from 'node:http';
 
-import connectDB from "./config/db.js";
-import connectToSocket from "./controllers/socket.controller.js";
-import userRoute from "./routes/user.route.js";
-
-dotenv.config();
+import connectDB from './config/db.js';
+import { corsOriginHandler } from './config/cors.js';
+import { env } from './config/env.js'; // validates env vars as a side effect — keep this import early
+import connectToSocket from './controllers/socket.controller.js';
+import { errorHandler, notFound } from './middlewares/error.middleware.js';
+import { apiLimiter } from './middlewares/rateLimit.middleware.js';
+import { sanitizeBody } from './middlewares/sanitize.middleware.js';
+import meetingRoute from './routes/meeting.route.js';
+import messageRoute from './routes/message.route.js';
+import userRoute from './routes/user.route.js';
 
 const app = express();
 const server = createServer(app);
 
-// Socket.IO
-connectToSocket(server);
-
-const PORT = process.env.PORT || 3000;
-
 /* ===========================
-   CORS Configuration
+   Security & Core Middleware
 =========================== */
 
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-  "https://chatting-azure-five.vercel.app",
-];
+app.set('trust proxy', 1); // required for secure cookies / correct IPs behind a proxy (Render, Vercel, nginx, etc.)
+
+app.use(helmet());
+app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+app.use(compression());
 
 app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow requests without Origin (Postman, mobile apps, curl)
-      if (!origin) {
-        return callback(null, true);
-      }
-
-      // Allow localhost, production, and all Vercel preview deployments
-      if (
-        allowedOrigins.includes(origin) ||
-        origin.endsWith(".vercel.app")
-      ) {
-        return callback(null, true);
-      }
-
-      console.error("❌ Blocked by CORS:", origin);
-
-      return callback(new Error(`CORS Error: ${origin} is not allowed`));
-    },
-
-    credentials: true,
-
-    methods: [
-      "GET",
-      "POST",
-      "PUT",
-      "PATCH",
-      "DELETE",
-      "OPTIONS",
-    ],
-
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-    ],
-  })
+    cors({
+        origin: corsOriginHandler,
+        credentials: true,
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization'],
+    })
 );
 
-/* ===========================
-   Middlewares
-=========================== */
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(cookieParser());
+app.use(sanitizeBody);
+app.use('/api', apiLimiter);
 
 /* ===========================
    Routes
 =========================== */
 
-app.use("/api/users", userRoute);
+app.use('/api/users', userRoute);
+app.use('/api/messages', messageRoute);
+app.use('/api/calls', meetingRoute);
 
-/* ===========================
-   Health Check
-=========================== */
-
-app.get("/", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "🚀 Chatting Backend is Running",
-  });
+app.get('/', (req, res) => {
+    res.status(200).json({
+        success: true,
+        message: '🚀 Chatting Backend is Running',
+        environment: env.NODE_ENV,
+    });
 });
 
+// Lightweight health check for uptime monitors / orchestrators (k8s, Render, etc.)
+app.get('/healthz', (req, res) => {
+    res.status(200).json({ success: true, uptime: process.uptime() });
+});
+
+app.use(notFound);
+app.use(errorHandler);
+
 /* ===========================
-   Database + Server Start
+   Startup & Graceful Shutdown
 =========================== */
 
-const startServer = async () => {
-  try {
-    await connectDB();
+let ioInstance = null;
 
-    server.listen(PORT, () => {
-      console.log("=================================");
-      console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`🌐 Environment : ${process.env.NODE_ENV || "development"}`);
-      console.log("=================================");
-    });
-  } catch (error) {
-    console.error("❌ Failed to start server");
-    console.error(error);
-    process.exit(1);
-  }
+const startServer = async () => {
+    try {
+        await connectDB();
+        ioInstance = await connectToSocket(server);
+
+        server.listen(env.PORT, () => {
+            console.log('=================================');
+            console.log(`🚀 Server running on port ${env.PORT}`);
+            console.log(`🌐 Environment : ${env.NODE_ENV}`);
+            console.log(`🔌 Socket.IO   : ready${env.REDIS_URL ? ' (Redis-backed, multi-instance)' : ' (single-instance)'}`);
+            console.log('=================================');
+        });
+    } catch (error) {
+        console.error('❌ Failed to start server');
+        console.error(error);
+        process.exit(1);
+    }
 };
 
+const shutdown = async (signal) => {
+    console.log(`\n👋 Received ${signal}. Shutting down gracefully...`);
+
+    try {
+        ioInstance?.close();
+        await new Promise((resolve) => server.close(resolve));
+        const mongoose = (await import('mongoose')).default;
+        await mongoose.connection.close(false);
+        console.log('✅ Server and DB connections closed. Bye!');
+        process.exit(0);
+    } catch (err) {
+        console.error('❌ Error during shutdown:', err);
+        process.exit(1);
+    }
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('unhandledRejection', (reason) => {
+    console.error('❌ Unhandled Rejection:', reason);
+});
+
 startServer();
+
+export default app;

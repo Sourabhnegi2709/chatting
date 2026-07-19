@@ -5,10 +5,10 @@ import {
     PhoneOff,
     Video,
     VideoOff,
-    Volume2,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
 import { connectSocket } from "../services/socket";
 
@@ -18,7 +18,7 @@ const STUN_SERVERS = [
     { urls: ["stun:stun2.l.google.com:19302"] },
 ];
 
-const buildCallId = (id1, id2) => [id1, id2].sort().join('_');
+const buildCallId = (id1, id2) => [id1, id2].sort().join("_");
 
 const Call = () => {
     const navigate = useNavigate();
@@ -45,7 +45,6 @@ const Call = () => {
     const currentUserId = getUserId(user);
     const contactUserId = getUserId(contact);
 
-    // Helper to emit socket events safely
     const emitToSocket = useCallback((event, data) => {
         if (socketRef.current?.connected) {
             socketRef.current.emit(event, data);
@@ -54,28 +53,25 @@ const Call = () => {
         }
     }, []);
 
-    // Get media stream
     const getMediaStream = useCallback(async () => {
         try {
             console.log("📹 Requesting media devices...");
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { width: { ideal: 1280 }, height: { ideal: 720 } }, 
-                audio: true 
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: true,
             });
             console.log("✅ Media stream acquired");
             setLocalStream(stream);
             setError(null);
             return stream;
         } catch (err) {
-            const errorMsg = `❌ Media error: ${err.name} - ${err.message}`;
-            console.error(errorMsg);
-            setError(errorMsg);
-            setCallStatus("Permission denied - check camera/mic access");
+            console.error(`Media error: ${err.name} - ${err.message}`);
+            setError("We couldn't access your camera or microphone. Check your browser permissions and try again.");
+            setCallStatus("Camera or microphone unavailable");
             throw err;
         }
     }, []);
 
-    // Create peer connection
     const createPeerConnection = useCallback(async () => {
         console.log("🔗 Creating peer connection...");
 
@@ -84,9 +80,7 @@ const Call = () => {
             stream = await getMediaStream();
         }
 
-        const peerConnection = new RTCPeerConnection({
-            iceServers: STUN_SERVERS,
-        });
+        const peerConnection = new RTCPeerConnection({ iceServers: STUN_SERVERS });
 
         stream.getTracks().forEach((track) => {
             peerConnection.addTrack(track, stream);
@@ -103,9 +97,9 @@ const Call = () => {
             const state = peerConnection.connectionState;
             console.log(`📊 Connection state: ${state}`);
             if (state === "connected" || state === "completed") {
-                setCallStatus("✅ Connected");
+                setCallStatus("Connected");
             } else if (state === "failed") {
-                setCallStatus("❌ Connection failed");
+                setCallStatus("Connection failed");
             }
         };
 
@@ -124,14 +118,13 @@ const Call = () => {
         return peerConnection;
     }, [localStream, getMediaStream, contactUserId, emitToSocket]);
 
-    // Cleanup
     const cleanupCall = useCallback(() => {
         if (peerConnectionRef.current) {
             peerConnectionRef.current.close();
             peerConnectionRef.current = null;
         }
         if (localStream) {
-            localStream.getTracks().forEach(track => track.stop());
+            localStream.getTracks().forEach((track) => track.stop());
             setLocalStream(null);
         }
         setRemoteStream(null);
@@ -140,7 +133,6 @@ const Call = () => {
         currentCallIdRef.current = null;
     }, [localStream]);
 
-    // Socket Setup
     useEffect(() => {
         if (!user || !currentUserId) return;
 
@@ -158,7 +150,6 @@ const Call = () => {
         if (socket.connected) registerUser();
         else socket.once("connect", registerUser);
 
-        // Socket Listeners
         const handleIncomingCall = ({ callId, caller, offer }) => {
             console.log(`📞 Incoming call from ${caller?.name}`);
             setIncomingCall({ callId, caller, offer });
@@ -170,9 +161,7 @@ const Call = () => {
             console.log("✅ Received answer from other side");
             try {
                 if (peerConnectionRef.current) {
-                    await peerConnectionRef.current.setRemoteDescription(
-                        new RTCSessionDescription(answer)
-                    );
+                    await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
                     setCallStatus("Connecting...");
                 }
             } catch (err) {
@@ -215,7 +204,6 @@ const Call = () => {
         };
     }, [user, currentUserId, cleanupCall]);
 
-    // Start outgoing call
     useEffect(() => {
         if (!contact || !contactUserId || !currentUserId || callStartedRef.current) return;
 
@@ -260,10 +248,7 @@ const Call = () => {
             const answer = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(answer);
 
-            emitToSocket("accept-call", {
-                callId: incomingCall.callId,
-                answer,
-            });
+            emitToSocket("accept-call", { callId: incomingCall.callId, answer });
 
             currentCallIdRef.current = incomingCall.callId;
             setIncomingCall(null);
@@ -283,9 +268,9 @@ const Call = () => {
 
     const endCall = () => {
         if (currentCallIdRef.current) {
-            emitToSocket("end-call", { 
+            emitToSocket("end-call", {
                 callId: currentCallIdRef.current,
-                recipientUserId: contactUserId 
+                recipientUserId: contactUserId,
             });
         }
         cleanupCall();
@@ -294,7 +279,7 @@ const Call = () => {
 
     const toggleMute = () => {
         if (!localStream) return;
-        localStream.getAudioTracks().forEach(track => {
+        localStream.getAudioTracks().forEach((track) => {
             track.enabled = !isMuted;
         });
         setIsMuted(!isMuted);
@@ -302,20 +287,18 @@ const Call = () => {
 
     const toggleVideo = () => {
         if (!localStream) return;
-        localStream.getVideoTracks().forEach(track => {
+        localStream.getVideoTracks().forEach((track) => {
             track.enabled = !isVideoOn;
         });
         setIsVideoOn(!isVideoOn);
     };
 
-    // Local Video
     useEffect(() => {
         if (localVideoRef.current && localStream) {
             localVideoRef.current.srcObject = localStream;
         }
     }, [localStream]);
 
-    // Remote Video
     useEffect(() => {
         if (remoteVideoRef.current && remoteStream) {
             remoteVideoRef.current.srcObject = remoteStream;
@@ -325,12 +308,22 @@ const Call = () => {
     return (
         <div className="h-screen w-full bg-gradient-to-b from-zinc-900 to-black text-white flex flex-col">
             <div className="flex items-center justify-between px-4 md:px-8 py-4">
-                <button onClick={() => navigate(-1)} className="rounded-full bg-white/10 p-2 hover:bg-white/20">
+                <button
+                    onClick={() => navigate(-1)}
+                    aria-label="Back"
+                    className="rounded-full bg-white/10 p-2.5 hover:bg-white/20 active:scale-90 transition-all"
+                >
                     <ArrowLeft size={22} />
                 </button>
-                <h1 className="text-lg font-medium md:text-xl">Video Call</h1>
+                <h1 className="text-base font-medium text-zinc-300">{callStatus}</h1>
                 <div className="w-10" />
             </div>
+
+            {error && (
+                <div className="mx-4 mb-2 rounded-2xl bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-200">
+                    {error}
+                </div>
+            )}
 
             <div className="flex-1 px-4 py-2 md:px-8">
                 <div className="relative flex h-full items-center justify-center overflow-hidden rounded-[2rem] border border-white/10 bg-zinc-950 shadow-2xl">
@@ -338,15 +331,17 @@ const Call = () => {
                         <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-cover" />
                     ) : (
                         <div className="flex flex-col items-center gap-3 text-center">
-                            <div className="flex h-24 w-24 items-center justify-center rounded-full bg-white/10 text-3xl font-semibold">
-                                {contact?.name?.[0] || "C"}
+                            <div className="relative flex h-24 w-24 items-center justify-center">
+                                <span className="absolute inset-0 rounded-full bg-emerald-500/30 animate-ping" />
+                                <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-white/10 text-3xl font-semibold">
+                                    {contact?.name?.[0] || "C"}
+                                </div>
                             </div>
                             <h2 className="text-2xl font-semibold">{contact?.name}</h2>
                             <p className="text-sm text-zinc-400">{callStatus}</p>
                         </div>
                     )}
 
-                    {/* Local Video */}
                     <div className="absolute bottom-4 right-4 h-32 w-24 overflow-hidden rounded-2xl border border-white/20 bg-zinc-900 shadow-xl md:h-40 md:w-32">
                         {localStream ? (
                             <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
@@ -357,28 +352,60 @@ const Call = () => {
                 </div>
             </div>
 
-            {/* Incoming Call UI */}
-            {incomingCall && (
-                <div className="mx-4 mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-100">
-                    <p className="font-semibold">Incoming call from {incomingCall.caller?.name}</p>
-                    <div className="mt-3 flex gap-3">
-                        <button onClick={acceptCall} className="rounded-full bg-emerald-500 px-6 py-2 font-medium text-white">Accept</button>
-                        <button onClick={rejectCall} className="rounded-full bg-zinc-700 px-6 py-2 font-medium text-white">Decline</button>
-                    </div>
-                </div>
-            )}
+            {/* Incoming Call Sheet */}
+            <AnimatePresence>
+                {incomingCall && (
+                    <motion.div
+                        initial={{ y: 100, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        exit={{ y: 100, opacity: 0 }}
+                        transition={{ type: "spring", stiffness: 300, damping: 28 }}
+                        className="mx-4 mb-4 rounded-3xl border border-emerald-500/30 bg-emerald-500/10 backdrop-blur-xl p-4"
+                    >
+                        <p className="font-semibold text-emerald-100">
+                            Incoming call from {incomingCall.caller?.name}
+                        </p>
+                        <div className="mt-3 flex gap-3">
+                            <button
+                                onClick={acceptCall}
+                                className="flex-1 rounded-full bg-emerald-500 hover:bg-emerald-600 active:scale-95 px-6 py-2.5 font-medium text-white transition-all"
+                            >
+                                Accept
+                            </button>
+                            <button
+                                onClick={rejectCall}
+                                className="flex-1 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 px-6 py-2.5 font-medium text-white transition-all"
+                            >
+                                Decline
+                            </button>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
-            {/* Controls */}
-            <div className="pb-8 px-4">
-                <div className="flex items-center justify-center gap-6">
-                    <button onClick={toggleMute} className={`rounded-full p-4 ${isMuted ? "bg-red-500" : "bg-white/10"}`}>
-                        {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
+            {/* Controls — glass bar */}
+            <div className="pb-8 px-4" style={{ paddingBottom: "max(2rem, env(safe-area-inset-bottom, 0px))" }}>
+                <div className="flex items-center justify-center gap-4 mx-auto w-fit rounded-full bg-white/10 backdrop-blur-xl border border-white/10 px-4 py-3 shadow-lg">
+                    <button
+                        onClick={toggleMute}
+                        aria-label={isMuted ? "Unmute" : "Mute"}
+                        className={`rounded-full p-4 transition-all active:scale-90 ${isMuted ? "bg-red-500" : "bg-white/10 hover:bg-white/20"}`}
+                    >
+                        {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
                     </button>
-                    <button onClick={toggleVideo} className={`rounded-full p-4 ${!isVideoOn ? "bg-red-500" : "bg-white/10"}`}>
-                        {isVideoOn ? <Video size={24} /> : <VideoOff size={24} />}
+                    <button
+                        onClick={toggleVideo}
+                        aria-label={isVideoOn ? "Turn off camera" : "Turn on camera"}
+                        className={`rounded-full p-4 transition-all active:scale-90 ${!isVideoOn ? "bg-red-500" : "bg-white/10 hover:bg-white/20"}`}
+                    >
+                        {isVideoOn ? <Video size={22} /> : <VideoOff size={22} />}
                     </button>
-                    <button onClick={endCall} className="rounded-full bg-red-600 p-4 hover:bg-red-700">
-                        <PhoneOff size={24} />
+                    <button
+                        onClick={endCall}
+                        aria-label="End call"
+                        className="rounded-full bg-red-600 hover:bg-red-700 active:scale-90 p-4 transition-all"
+                    >
+                        <PhoneOff size={22} />
                     </button>
                 </div>
             </div>

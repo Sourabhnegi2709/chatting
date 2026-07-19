@@ -1,29 +1,43 @@
 import mongoose from 'mongoose';
+import { env } from './env.js';
 
-const connectDB = async () => {
-    if (!process.env.MONGO_URL) {
-        console.warn('⚠️  MongoDB URL not configured. Running in MEMORY MODE (data will be lost on restart).');
-        return false;
-    }
+mongoose.set('strictQuery', true);
 
+const MAX_RETRIES = 5;
+const RETRY_DELAY_MS = 3000;
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const connectDB = async (attempt = 1) => {
     try {
-        // Ensure proper error handling
-        const connection = await mongoose.connect(process.env.MONGO_URL, {
+        await mongoose.connect(env.MONGO_URL, {
+            maxPoolSize: 20, // connection pool - important once you scale to multiple instances
             serverSelectionTimeoutMS: 10000,
-            socketTimeoutMS: 45000,
-            retryWrites: true,
-            w: 'majority',
         });
-        
-        console.log('✅ MongoDB Connected Successfully');
-        console.log(`   Database: ${connection.connection.db.databaseName}`);
-        return true;
-    } catch (error) {
-        console.error('❌ MongoDB Connection Failed:', error.message);
-        console.warn('⚠️  Falling back to MEMORY MODE - data WILL BE LOST on server restart!');
-        console.warn('   Please check your MONGO_URL and MongoDB Atlas configuration.');
-        return false;
+        console.log(`✅ MongoDB connected: ${mongoose.connection.host}`);
+    } catch (err) {
+        console.error(`❌ MongoDB connection attempt ${attempt} failed: ${err.message}`);
+
+        if (attempt >= MAX_RETRIES) {
+            console.error('❌ Exhausted retries connecting to MongoDB. Exiting.');
+            throw err;
+        }
+
+        await wait(RETRY_DELAY_MS * attempt); // simple backoff
+        return connectDB(attempt + 1);
     }
 };
+
+mongoose.connection.on('disconnected', () => {
+    console.warn('⚠️  MongoDB disconnected. Mongoose will attempt to reconnect automatically.');
+});
+
+mongoose.connection.on('reconnected', () => {
+    console.log('✅ MongoDB reconnected.');
+});
+
+mongoose.connection.on('error', (err) => {
+    console.error('❌ MongoDB connection error:', err.message);
+});
 
 export default connectDB;

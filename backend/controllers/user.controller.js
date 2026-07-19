@@ -1,248 +1,122 @@
-import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
 import User from '../models/user.model.js';
-
-const memoryUsers = new Map();
-const memoryUsersById = new Map();
+import { ApiError } from '../utils/ApiError.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
+import { clearAuthCookie, setAuthCookie, signToken } from '../utils/token.js';
 
 const normalizeEmail = (email) => email?.toLowerCase?.().trim?.() || '';
 
-const buildUserPayload = (user) => ({
-    id: user._id?.toString?.() || user.id,
-    _id: user._id?.toString?.() || user.id,
-    name: user.name,
-    email: user.email,
-    bio: user.bio || '',
-    avatar: user.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user.name || user.email || 'user')}`,
+export const login = asyncHandler(async (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        throw new ApiError(400, 'Email and password are required.');
+    }
+
+    const user = await User.findOne({ email: normalizeEmail(email) }).select('+password');
+
+    // Same error message whether the email doesn't exist or the password is
+    // wrong — avoids leaking which emails are registered.
+    if (!user || !(await user.comparePassword(password))) {
+        throw new ApiError(401, 'Invalid email or password.');
+    }
+
+    user.lastSeenAt = new Date();
+    await user.save({ validateModifiedOnly: true });
+
+    const token = signToken(user._id);
+    setAuthCookie(res, token);
+
+    res.status(200).json({
+        success: true,
+        message: 'Login successful',
+        user,
+        token,
+    });
 });
 
-const storeMemoryUser = (user) => {
-    const normalizedEmail = normalizeEmail(user.email);
-    if (!normalizedEmail) return user;
+export const register = asyncHandler(async (req, res) => {
+    const { name, email, password } = req.body;
 
-    memoryUsers.set(normalizedEmail, user);
-    memoryUsersById.set(user._id?.toString?.() || user.id, user);
-    return user;
-};
-
-const isDbConfigured = Boolean(process.env.MONGO_URL);
-
-export const login = async (req, res) => {
-    try {
-        const { email, password } = req.body;
-        const normalizedEmail = normalizeEmail(email);
-
-        let user;
-        if (isDbConfigured) {
-            user = await User.findOne({ email: normalizedEmail });
-        } else {
-            user = memoryUsers.get(normalizedEmail);
-        }
-
-        if (!user) {
-            return res.status(401).json({ message: 'Invalid email or password.' });
-        }
-
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-            return res.status(401).json({ message: 'Invalid email or password.' });
-        }
-
-        const token = jwt.sign({ userId: user._id || user.id }, process.env.JWT_SECRET || 'chat-secret', { expiresIn: '7d' });
-
-        res.cookie('token', token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'Strict',
-            maxAge: 7 * 24 * 60 * 60 * 1000,
-        });
-
-        res.status(200).json({
-            message: 'Login successful',
-            user: buildUserPayload(user),
-            token,
-        });
-    } catch (err) {
-        console.error('❌ Login Error:', err);
-        res.status(500).json({ message: 'Internal Server Error' });
+    if (!name?.trim() || !email?.trim() || !password) {
+        throw new ApiError(400, 'Name, email, and password are required.');
     }
-};
-
-export const register = async (req, res) => {
-    try {
-        const { name, email, password } = req.body;
-
-        if (!name || !email || !password) {
-            return res.status(400).json({ message: 'Name, email, and password are required.' });
-        }
-
-        const normalizedEmail = normalizeEmail(email);
-
-        if (isDbConfigured) {
-            const existingUser = await User.findOne({ email: normalizedEmail });
-            if (existingUser) {
-                return res.status(409).json({ message: 'User already exists' });
-            }
-
-            const hashedPassword = await bcrypt.hash(password, 12);
-            const user = await User.create({ name, email: normalizedEmail, password: hashedPassword });
-
-            const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET || 'chat-secret', { expiresIn: '7d' });
-            res.cookie('token', token, {
-                httpOnly: true,
-                secure: process.env.NODE_ENV === 'production',
-                sameSite: 'Strict',
-                maxAge: 7 * 24 * 60 * 60 * 1000,
-            });
-
-            return res.status(201).json({
-                message: 'User registered successfully',
-                user: buildUserPayload(user),
-            });
-        }
-
-        if (memoryUsers.has(normalizedEmail)) {
-            return res.status(409).json({ message: 'User already exists' });
-        }
-
-        const hashedPassword = await bcrypt.hash(password, 12);
-        const user = {
-            id: `${Date.now()}`,
-            _id: `${Date.now()}`,
-            name,
-            email: normalizedEmail,
-            password: hashedPassword,
-            bio: '',
-            avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}`,
-        };
-
-        storeMemoryUser(user);
-
-        const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET || 'chat-secret', { expiresIn: '7d' });
-        res.cookie('token', token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'Strict',
-            maxAge: 7 * 24 * 60 * 60 * 1000,
-        });
-
-        res.status(201).json({
-            message: 'User registered successfully',
-            user: buildUserPayload(user),
-            token,
-        });
-    } catch (err) {
-        console.error('❌ Register Error:', err);
-        res.status(500).json({ message: 'Server Error' });
+    if (password.length < 5) {
+        throw new ApiError(400, 'Password must be at least 5 characters.');
     }
-};
 
-export const getUsers = async (req, res) => {
-    try {
-        if (isDbConfigured) {
-            const users = await User.find({}, 'name email avatar').lean();
-            return res.status(200).json({ users: users.map(buildUserPayload) });
-        }
-
-        const users = Array.from(memoryUsers.values()).map(buildUserPayload);
-        return res.status(200).json({ users });
-    } catch (err) {
-        console.error('❌ Get Users Error:', err);
-        res.status(500).json({ message: 'Internal Server Error' });
+    const normalizedEmail = normalizeEmail(email);
+    const existingUser = await User.findOne({ email: normalizedEmail });
+    if (existingUser) {
+        throw new ApiError(409, 'An account with this email already exists.');
     }
-};
 
-export const logout = (req, res) => {
-    try {
-        res.clearCookie('token');
-        res.status(200).json({ message: 'Logged out successfully' });
-    } catch (err) {
-        console.error('❌ Logout Error:', err);
-        res.status(500).json({ message: 'Internal Server Error' });
+    // Password hashing happens inside User's pre-save hook — one implementation, no drift.
+    const user = await User.create({ name: name.trim(), email: normalizedEmail, password });
+
+    const token = signToken(user._id);
+    setAuthCookie(res, token);
+
+    res.status(201).json({
+        success: true,
+        message: 'User registered successfully',
+        user,
+        token,
+    });
+});
+
+export const getUsers = asyncHandler(async (req, res) => {
+    const { search = '', page, limit } = req.query;
+
+    const filter = { _id: { $ne: req.user._id } }; // never return yourself as a "contact"
+
+    if (search.trim()) {
+        const regex = new RegExp(search.trim(), 'i');
+        filter.$or = [{ name: regex }, { email: regex }];
     }
-};
 
-export const me = async (req, res) => {
-    try {
-        const token = req.cookies?.token;
-        if (!token) return res.status(401).json({ message: 'Not authenticated' });
+    let query = User.find(filter).sort({ name: 1 });
 
-        const payload = jwt.verify(token, process.env.JWT_SECRET || 'chat-secret');
-        const userId = payload?.userId;
-        if (!userId) return res.status(401).json({ message: 'Not authenticated' });
-
-        if (!isDbConfigured) {
-            const user = memoryUsersById.get(userId);
-            if (!user) return res.status(401).json({ message: 'Not authenticated' });
-            return res.status(200).json({ user: buildUserPayload(user) });
-        }
-
-        const user = await User.findById(userId);
-        if (!user) return res.status(401).json({ message: 'Not authenticated' });
-
-        return res.status(200).json({ user: buildUserPayload(user) });
-    } catch (err) {
-        return res.status(401).json({ message: 'Not authenticated' });
+    // Pagination is opt-in via query params so existing frontend calls
+    // (no page/limit) keep getting the full contact list, unchanged.
+    if (page || limit) {
+        const pageNum = Math.max(Number(page) || 1, 1);
+        const limitNum = Math.min(Math.max(Number(limit) || 50, 1), 100);
+        query = query.skip((pageNum - 1) * limitNum).limit(limitNum);
     }
-};
 
-export const updateProfile = async (req, res) => {
-    try {
-        const token = req.cookies?.token;
-        if (!token) return res.status(401).json({ message: 'Not authenticated' });
+    const users = await query;
+    const total = await User.countDocuments(filter);
 
-        const payload = jwt.verify(token, process.env.JWT_SECRET || 'chat-secret');
-        const userId = payload?.userId;
-        if (!userId) return res.status(401).json({ message: 'Not authenticated' });
+    res.status(200).json({ success: true, users, total });
+});
 
-        const { name, email, bio } = req.body;
-        const normalizedEmail = normalizeEmail(email);
+export const logout = asyncHandler(async (req, res) => {
+    clearAuthCookie(res);
+    res.status(200).json({ success: true, message: 'Logged out successfully' });
+});
 
-        if (!name?.trim()) {
-            return res.status(400).json({ message: 'Name is required.' });
-        }
+export const me = asyncHandler(async (req, res) => {
+    // req.user is populated by requireAuth middleware, already verified against the DB.
+    res.status(200).json({ success: true, user: req.user });
+});
 
-        if (!normalizedEmail) {
-            return res.status(400).json({ message: 'Email is required.' });
-        }
+export const updateProfile = asyncHandler(async (req, res) => {
+    const { name, email, bio } = req.body;
 
-        if (!isDbConfigured) {
-            const currentUser = memoryUsersById.get(userId);
-            if (!currentUser) return res.status(401).json({ message: 'Not authenticated' });
+    if (!name?.trim()) throw new ApiError(400, 'Name is required.');
 
-            const duplicate = Array.from(memoryUsers.values()).find((entry) => entry.email === normalizedEmail && entry._id?.toString?.() !== userId);
-            if (duplicate) {
-                return res.status(409).json({ message: 'Email already in use.' });
-            }
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) throw new ApiError(400, 'Email is required.');
 
-            memoryUsers.delete(normalizeEmail(currentUser.email));
-            currentUser.name = name.trim();
-            currentUser.email = normalizedEmail;
-            currentUser.bio = bio?.trim?.() || '';
-            memoryUsers.set(normalizedEmail, currentUser);
-            memoryUsersById.set(userId, currentUser);
-
-            return res.status(200).json({ user: buildUserPayload(currentUser) });
-        }
-
-        const existingUser = await User.findOne({ email: normalizedEmail, _id: { $ne: userId } });
-        if (existingUser) {
-            return res.status(409).json({ message: 'Email already in use.' });
-        }
-
-        const user = await User.findById(userId);
-        if (!user) return res.status(401).json({ message: 'Not authenticated' });
-
-        user.name = name.trim();
-        user.email = normalizedEmail;
-        user.bio = bio?.trim?.() || '';
-        await user.save();
-
-        return res.status(200).json({ user: buildUserPayload(user) });
-    } catch (err) {
-        console.error('❌ Update Profile Error:', err);
-        return res.status(500).json({ message: 'Unable to update profile.' });
+    if (normalizedEmail !== req.user.email) {
+        const duplicate = await User.findOne({ email: normalizedEmail, _id: { $ne: req.user._id } });
+        if (duplicate) throw new ApiError(409, 'Email already in use.');
     }
-};
 
+    req.user.name = name.trim();
+    req.user.email = normalizedEmail;
+    req.user.bio = bio?.trim?.() || '';
+    await req.user.save();
 
+    res.status(200).json({ success: true, user: req.user });
+});

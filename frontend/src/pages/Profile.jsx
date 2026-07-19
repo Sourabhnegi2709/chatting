@@ -1,7 +1,7 @@
-
-import { ArrowLeft, Loader2, Save, User } from "lucide-react";
+import { ArrowLeft, Loader2, Pencil, Save, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
 
 const Profile = () => {
@@ -43,9 +43,12 @@ const Profile = () => {
         }
     };
 
+    const inputClass =
+        "mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 outline-none transition-all focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10";
+
     return (
         <div className="min-h-screen bg-zinc-100 p-4 md:p-6">
-            <div className="mx-auto max-w-3xl rounded-3xl bg-white p-6 shadow-lg">
+            <div className="mx-auto max-w-3xl rounded-3xl bg-white p-6 shadow-sm">
                 <button
                     onClick={() => navigate(-1)}
                     className="mb-4 flex items-center gap-2 text-sm font-medium text-zinc-600 transition hover:text-zinc-900"
@@ -56,12 +59,17 @@ const Profile = () => {
 
                 <div className="flex flex-col gap-4 rounded-3xl border border-zinc-200 bg-zinc-50 p-4 md:flex-row md:items-center md:justify-between">
                     <div className="flex items-center gap-4">
-                        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-cyan-500 text-white shadow-md">
-                            {user?.avatar ? (
-                                <img src={user.avatar} alt={user.name || "Profile"} className="h-full w-full rounded-full object-cover" />
-                            ) : (
-                                <User size={28} />
-                            )}
+                        <div className="relative group cursor-pointer">
+                            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-cyan-500 text-white shadow-md overflow-hidden">
+                                {user?.avatar ? (
+                                    <img src={user.avatar} alt={user.name || "Profile"} className="h-full w-full object-cover" />
+                                ) : (
+                                    <User size={28} />
+                                )}
+                            </div>
+                            <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                <Pencil size={16} className="text-white" />
+                            </div>
                         </div>
                         <div>
                             <h1 className="text-xl font-semibold text-zinc-900">{user?.name || "Guest User"}</h1>
@@ -82,7 +90,7 @@ const Profile = () => {
                                 name="name"
                                 value={form.name}
                                 onChange={handleChange}
-                                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 outline-none ring-0 transition focus:border-emerald-500"
+                                className={inputClass}
                                 placeholder="Enter your name"
                             />
                         </label>
@@ -94,7 +102,7 @@ const Profile = () => {
                                 name="email"
                                 value={form.email}
                                 onChange={handleChange}
-                                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 outline-none ring-0 transition focus:border-emerald-500"
+                                className={inputClass}
                                 placeholder="Enter your email"
                             />
                         </label>
@@ -107,22 +115,31 @@ const Profile = () => {
                             value={form.bio}
                             onChange={handleChange}
                             rows="4"
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 outline-none ring-0 transition focus:border-emerald-500"
+                            className={inputClass}
                             placeholder="Tell people a bit about yourself"
                         />
                     </label>
 
-                    {message.text ? (
-                        <div className={`rounded-2xl px-4 py-3 text-sm ${message.type === "success" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
-                            {message.text}
-                        </div>
-                    ) : null}
+                    <AnimatePresence>
+                        {message.text && (
+                            <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: "auto" }}
+                                exit={{ opacity: 0, height: 0 }}
+                                className={`rounded-2xl px-4 py-3 text-sm overflow-hidden ${
+                                    message.type === "success" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
+                                }`}
+                            >
+                                {message.text}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
 
                     <div className="flex items-center justify-end">
                         <button
                             type="submit"
                             disabled={submitting || loading}
-                            className="flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
+                            className="flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition-all hover:bg-emerald-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-70"
                         >
                             {submitting ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                             {submitting ? "Saving..." : "Save Profile"}
