@@ -1,11 +1,10 @@
-import React from "react";
-import { MessageCircle, Video, Settings } from "lucide-react";
+import { MessageCircle, Settings, Video } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "../../utils/cn";
 
 const TABS = [
     { to: "/", label: "Chats", icon: MessageCircle, match: (p) => p === "/" },
-    { to: "/call", label: "Calls", icon: Video, match: (p) => p.startsWith("/call") || p.startsWith("/video") },
+    { to: "/video", label: "Calls", icon: Video, match: (p) => p.startsWith("/call") || p.startsWith("/video") },
     { to: "/settings", label: "Settings", icon: Settings, match: (p) => p.startsWith("/settings") },
 ];
 

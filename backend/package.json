@@ -22,7 +22,8 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.3.4",
     "morgan": "^1.10.0",
-    "socket.io": "^4.7.5"
+    "socket.io": "^4.7.5",
+    "socket.io-adapter": "^2.5.8"
   },
   "optionalDependencies": {
     "@socket.io/redis-adapter": "^8.3.0",

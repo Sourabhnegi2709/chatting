@@ -20,6 +20,7 @@ const Home = () => {
         setSearchQuery,
     } = useChat();
 
+    const hasActiveContact = Boolean(activeContactId);
     const [showSidebar, setShowSidebar] = useState(true);
 
     useEffect(() => {
@@ -28,11 +29,12 @@ const Home = () => {
         }
     }, [loading, navigate, user]);
 
+    // Auto-hide sidebar on mobile only when a contact is *explicitly* selected (not on reference changes)
     useEffect(() => {
-        if (activeContact && window.innerWidth < 768) {
+        if (hasActiveContact && window.innerWidth < 768) {
             setShowSidebar(false);
         }
-    }, [activeContact]);
+    }, [hasActiveContact]);
 
     if (loading || !user) {
         return null;

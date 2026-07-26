@@ -1,3 +1,4 @@
+// src/pages/Call.jsx
 import {
     ArrowLeft,
     Mic,
@@ -8,9 +9,8 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
-import { connectSocket } from "../services/socket";
+import { useCall } from "../context/CallContext";
 
 const STUN_SERVERS = [
     { urls: ["stun:stun.l.google.com:19302"] },
@@ -24,26 +24,45 @@ const Call = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { user } = useAuth();
+    const { socketRef, stopRingtone } = useCall();
+
     const contact = location.state?.contact;
+    const acceptedIncomingCall = location.state?.incomingCallData;
 
     const [isMuted, setIsMuted] = useState(false);
     const [isVideoOn, setIsVideoOn] = useState(true);
     const [localStream, setLocalStream] = useState(null);
     const [remoteStream, setRemoteStream] = useState(null);
-    const [callStatus, setCallStatus] = useState(contact ? "Initializing..." : "Ready to call");
-    const [incomingCall, setIncomingCall] = useState(null);
+    const [callStatus, setCallStatus] = useState("Initializing...");
     const [error, setError] = useState(null);
 
-    const socketRef = useRef(null);
     const peerConnectionRef = useRef(null);
     const localVideoRef = useRef(null);
     const remoteVideoRef = useRef(null);
     const callStartedRef = useRef(false);
     const currentCallIdRef = useRef(null);
 
+    // Audio Ref for Outgoing Ringback Sound
+    const ringbackAudioRef = useRef(null);
+
     const getUserId = (value) => value?.id || value?._id || value;
     const currentUserId = getUserId(user);
     const contactUserId = getUserId(contact);
+
+    const playRingback = () => {
+        if (!ringbackAudioRef.current) {
+            ringbackAudioRef.current = new Audio("/sounds/ringtone.mp3");
+            ringbackAudioRef.current.loop = true;
+        }
+        ringbackAudioRef.current.play().catch((e) => console.warn("Audio autoplay blocked:", e));
+    };
+
+    const stopRingback = useCallback(() => {
+        if (ringbackAudioRef.current) {
+            ringbackAudioRef.current.pause();
+            ringbackAudioRef.current.currentTime = 0;
+        }
+    }, []);
 
     const emitToSocket = useCallback((event, data) => {
         if (socketRef.current?.connected) {
@@ -51,30 +70,25 @@ const Call = () => {
         } else {
             console.error(`Socket not connected for event: ${event}`);
         }
-    }, []);
+    }, [socketRef]);
 
     const getMediaStream = useCallback(async () => {
         try {
-            console.log("📹 Requesting media devices...");
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: { width: { ideal: 1280 }, height: { ideal: 720 } },
                 audio: true,
             });
-            console.log("✅ Media stream acquired");
             setLocalStream(stream);
             setError(null);
             return stream;
         } catch (err) {
-            console.error(`Media error: ${err.name} - ${err.message}`);
-            setError("We couldn't access your camera or microphone. Check your browser permissions and try again.");
-            setCallStatus("Camera or microphone unavailable");
+            setError("Camera or microphone access denied. Check your browser permissions.");
+            setCallStatus("Media devices unavailable");
             throw err;
         }
     }, []);
 
     const createPeerConnection = useCallback(async () => {
-        console.log("🔗 Creating peer connection...");
-
         let stream = localStream;
         if (!stream) {
             stream = await getMediaStream();
@@ -87,7 +101,6 @@ const Call = () => {
         });
 
         peerConnection.ontrack = (event) => {
-            console.log(`📥 Received remote ${event.track.kind} track`);
             if (event.streams?.[0]) {
                 setRemoteStream(event.streams[0]);
             }
@@ -95,17 +108,19 @@ const Call = () => {
 
         peerConnection.onconnectionstatechange = () => {
             const state = peerConnection.connectionState;
-            console.log(`📊 Connection state: ${state}`);
             if (state === "connected" || state === "completed") {
+                stopRingback();
+                stopRingtone();
                 setCallStatus("Connected");
             } else if (state === "failed") {
+                stopRingback();
+                stopRingtone();
                 setCallStatus("Connection failed");
             }
         };
 
         peerConnection.onicecandidate = (event) => {
             if (event.candidate && socketRef.current) {
-                console.log("🧊 Sending ICE candidate");
                 emitToSocket("ice-candidate", {
                     callId: currentCallIdRef.current,
                     recipientUserId: contactUserId,
@@ -116,9 +131,11 @@ const Call = () => {
 
         peerConnectionRef.current = peerConnection;
         return peerConnection;
-    }, [localStream, getMediaStream, contactUserId, emitToSocket]);
+    }, [localStream, getMediaStream, contactUserId, emitToSocket, stopRingback, stopRingtone, socketRef]);
 
     const cleanupCall = useCallback(() => {
+        stopRingback();
+        stopRingtone();
         if (peerConnectionRef.current) {
             peerConnectionRef.current.close();
             peerConnectionRef.current = null;
@@ -128,37 +145,17 @@ const Call = () => {
             setLocalStream(null);
         }
         setRemoteStream(null);
-        setIncomingCall(null);
         callStartedRef.current = false;
         currentCallIdRef.current = null;
-    }, [localStream]);
+    }, [localStream, stopRingback, stopRingtone]);
 
+    // Socket Event Listeners for Active Call Statuses
     useEffect(() => {
-        if (!user || !currentUserId) return;
+        const socket = socketRef.current;
+        if (!socket) return;
 
-        const socket = connectSocket();
-        socketRef.current = socket;
-
-        const registerUser = () => {
-            socket.emit("register-user", {
-                userId: currentUserId,
-                name: user.name,
-                email: user.email,
-            });
-        };
-
-        if (socket.connected) registerUser();
-        else socket.once("connect", registerUser);
-
-        const handleIncomingCall = ({ callId, caller, offer }) => {
-            console.log(`📞 Incoming call from ${caller?.name}`);
-            setIncomingCall({ callId, caller, offer });
-            setCallStatus(`Incoming call from ${caller?.name}`);
-            currentCallIdRef.current = callId;
-        };
-
-        const handleCallAccepted = async ({ callId, answer }) => {
-            console.log("✅ Received answer from other side");
+        const handleCallAccepted = async ({ answer }) => {
+            stopRingback();
             try {
                 if (peerConnectionRef.current) {
                     await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
@@ -170,13 +167,17 @@ const Call = () => {
         };
 
         const handleCallRejected = () => {
+            stopRingback();
             setCallStatus("Call declined");
             cleanupCall();
+            setTimeout(() => navigate(-1), 1500);
         };
 
-        const handleCallEnded = ({ reason }) => {
+        const handleCallEnded = () => {
+            stopRingback();
             setCallStatus("Call ended");
             cleanupCall();
+            setTimeout(() => navigate(-1), 1000);
         };
 
         const handleIceCandidate = async ({ candidate }) => {
@@ -189,98 +190,96 @@ const Call = () => {
             }
         };
 
-        socket.on("incoming-call", handleIncomingCall);
         socket.on("call-accepted", handleCallAccepted);
         socket.on("call-rejected", handleCallRejected);
         socket.on("call-ended", handleCallEnded);
         socket.on("ice-candidate", handleIceCandidate);
 
         return () => {
-            socket.off("incoming-call", handleIncomingCall);
             socket.off("call-accepted", handleCallAccepted);
             socket.off("call-rejected", handleCallRejected);
             socket.off("call-ended", handleCallEnded);
             socket.off("ice-candidate", handleIceCandidate);
         };
-    }, [user, currentUserId, cleanupCall]);
+    }, [socketRef, stopRingback, cleanupCall, navigate]);
 
+    // Initialize Call Flow
     useEffect(() => {
-        if (!contact || !contactUserId || !currentUserId || callStartedRef.current) return;
+        if (callStartedRef.current) return;
 
-        const initCall = async () => {
-            try {
+        // SCENARIO 1: Answering an incoming call from global context modal
+        if (acceptedIncomingCall) {
+            const handleAnswer = async () => {
                 callStartedRef.current = true;
-                setCallStatus("Initializing media...");
+                setCallStatus("Connecting...");
 
-                await getMediaStream();
                 const peerConnection = await createPeerConnection();
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(acceptedIncomingCall.offer));
 
-                const offer = await peerConnection.createOffer();
-                await peerConnection.setLocalDescription(offer);
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
 
-                const callId = buildCallId(currentUserId, contactUserId);
-                currentCallIdRef.current = callId;
-
-                emitToSocket("start-call", {
-                    recipientUserId: contactUserId,
-                    caller: { id: currentUserId, name: user.name },
-                    offer,
+                emitToSocket("accept-call", {
+                    callId: acceptedIncomingCall.callId,
+                    answer,
                 });
 
-                setCallStatus(`Calling ${contact.name}...`);
-            } catch (error) {
-                console.error("Failed to start call:", error);
-                setCallStatus("Failed to start call");
-            }
-        };
+                currentCallIdRef.current = acceptedIncomingCall.callId;
+            };
 
-        initCall();
-    }, [contact, contactUserId, currentUserId, user, getMediaStream, createPeerConnection, emitToSocket]);
-
-    const acceptCall = async () => {
-        if (!incomingCall) return;
-
-        try {
-            callStartedRef.current = true;
-            const peerConnection = await createPeerConnection();
-
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-
-            emitToSocket("accept-call", { callId: incomingCall.callId, answer });
-
-            currentCallIdRef.current = incomingCall.callId;
-            setIncomingCall(null);
-            setCallStatus("Connecting...");
-        } catch (error) {
-            console.error("Accept call failed:", error);
+            handleAnswer();
+            return;
         }
-    };
 
-    const rejectCall = () => {
-        if (incomingCall?.callId) {
-            emitToSocket("reject-call", { callId: incomingCall.callId });
+        // SCENARIO 2: Starting an outgoing call to a contact
+        if (contact && contactUserId && currentUserId) {
+            const initOutgoingCall = async () => {
+                try {
+                    callStartedRef.current = true;
+                    setCallStatus("Initializing media...");
+
+                    await getMediaStream();
+                    const peerConnection = await createPeerConnection();
+
+                    const offer = await peerConnection.createOffer();
+                    await peerConnection.setLocalDescription(offer);
+
+                    const callId = buildCallId(currentUserId, contactUserId);
+                    currentCallIdRef.current = callId;
+
+                    emitToSocket("start-call", {
+                        recipientUserId: contactUserId,
+                        caller: { id: currentUserId, name: user.name },
+                        offer,
+                    });
+
+                    playRingback();
+                    setCallStatus(`Calling ${contact.name}...`);
+                } catch (err) {
+                    console.error("Failed to start call:", err);
+                    setCallStatus("Failed to start call");
+                }
+            };
+
+            initOutgoingCall();
         }
-        cleanupCall();
-        navigate(-1);
-    };
+    }, [acceptedIncomingCall, contact, contactUserId, currentUserId, user, getMediaStream, createPeerConnection, emitToSocket]);
 
     const endCall = () => {
+        cleanupCall();
         if (currentCallIdRef.current) {
             emitToSocket("end-call", {
                 callId: currentCallIdRef.current,
                 recipientUserId: contactUserId,
             });
         }
-        cleanupCall();
         navigate(-1);
     };
 
     const toggleMute = () => {
         if (!localStream) return;
         localStream.getAudioTracks().forEach((track) => {
-            track.enabled = !isMuted;
+            track.enabled = isMuted;
         });
         setIsMuted(!isMuted);
     };
@@ -306,106 +305,137 @@ const Call = () => {
     }, [remoteStream]);
 
     return (
-        <div className="h-screen w-full bg-gradient-to-b from-zinc-900 to-black text-white flex flex-col">
-            <div className="flex items-center justify-between px-4 md:px-8 py-4">
+        <div className="relative h-[100dvh] w-full bg-slate-950 text-white flex flex-col justify-between overflow-hidden font-sans">
+            {/* Top Navigation Bar */}
+            <div className="relative z-20 flex items-center justify-between px-4 md:px-8 py-4 bg-gradient-to-b from-slate-950/80 to-transparent">
                 <button
-                    onClick={() => navigate(-1)}
+                    onClick={endCall}
                     aria-label="Back"
-                    className="rounded-full bg-white/10 p-2.5 hover:bg-white/20 active:scale-90 transition-all"
+                    className="flex items-center justify-center rounded-full bg-slate-800/80 text-white p-3 hover:bg-slate-700 active:scale-95 transition-all shadow-md"
                 >
-                    <ArrowLeft size={22} />
+                    <ArrowLeft size={20} />
                 </button>
-                <h1 className="text-base font-medium text-zinc-300">{callStatus}</h1>
+
+                <div className="flex items-center gap-2 rounded-full bg-slate-900/90 border border-slate-700/60 px-4 py-1.5 shadow-lg">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <h1 className="text-xs md:text-sm font-semibold tracking-wide text-slate-200">
+                        {callStatus}
+                    </h1>
+                </div>
+
                 <div className="w-10" />
             </div>
 
             {error && (
-                <div className="mx-4 mb-2 rounded-2xl bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-200">
+                <div className="relative z-20 mx-4 my-2 rounded-2xl bg-red-600/90 border border-red-400/40 px-4 py-3 text-xs md:text-sm font-medium text-white shadow-xl text-center">
                     {error}
                 </div>
             )}
 
-            <div className="flex-1 px-4 py-2 md:px-8">
-                <div className="relative flex h-full items-center justify-center overflow-hidden rounded-[2rem] border border-white/10 bg-zinc-950 shadow-2xl">
+            {/* Main Video View */}
+            <div className="relative flex-1 px-2 md:px-6 py-2 overflow-hidden flex items-center justify-center">
+                <div className="relative h-full w-full max-w-5xl overflow-hidden rounded-3xl border border-slate-800 bg-slate-900 shadow-2xl flex items-center justify-center">
                     {remoteStream ? (
-                        <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-cover" />
+                        <video
+                            ref={remoteVideoRef}
+                            autoPlay
+                            playsInline
+                            className="h-full w-full object-cover"
+                        />
                     ) : (
-                        <div className="flex flex-col items-center gap-3 text-center">
-                            <div className="relative flex h-24 w-24 items-center justify-center">
-                                <span className="absolute inset-0 rounded-full bg-emerald-500/30 animate-ping" />
-                                <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-white/10 text-3xl font-semibold">
-                                    {contact?.name?.[0] || "C"}
+                        <div className="flex flex-col items-center justify-center gap-4 text-center p-6">
+                            <div className="relative flex h-28 w-28 items-center justify-center">
+                                <span className="absolute inset-0 rounded-full bg-emerald-500/20 animate-ping" />
+                                <div className="relative flex h-28 w-28 items-center justify-center rounded-full bg-slate-800 border-2 border-slate-700 text-3xl font-bold text-slate-100 shadow-2xl">
+                                    {contact?.name?.[0]?.toUpperCase() || "C"}
                                 </div>
                             </div>
-                            <h2 className="text-2xl font-semibold">{contact?.name}</h2>
-                            <p className="text-sm text-zinc-400">{callStatus}</p>
+                            <div>
+                                <h2 className="text-xl md:text-2xl font-bold text-white tracking-tight">
+                                    {contact?.name || "In Call..."}
+                                </h2>
+                                <p className="text-xs md:text-sm font-medium text-slate-400 mt-1">
+                                    {callStatus}
+                                </p>
+                            </div>
                         </div>
                     )}
 
-                    <div className="absolute bottom-4 right-4 h-32 w-24 overflow-hidden rounded-2xl border border-white/20 bg-zinc-900 shadow-xl md:h-40 md:w-32">
-                        {localStream ? (
-                            <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+                    {/* Local Camera Stream */}
+                    <div className="absolute top-4 right-4 md:top-6 md:right-6 h-36 w-28 md:h-48 md:w-36 overflow-hidden rounded-2xl border-2 border-slate-700/80 bg-slate-950 shadow-2xl z-10 transition-all">
+                        {localStream && isVideoOn ? (
+                            <video
+                                ref={localVideoRef}
+                                autoPlay
+                                playsInline
+                                muted
+                                className="h-full w-full object-cover scale-x-[-1]"
+                            />
                         ) : (
-                            <div className="flex h-full items-center justify-center text-xs text-zinc-400">Camera preview</div>
+                            <div className="flex h-full w-full flex-col items-center justify-center bg-slate-900 text-slate-400">
+                                <VideoOff size={20} className="mb-1" />
+                                <span className="text-[10px] font-semibold uppercase tracking-wider">Off</span>
+                            </div>
                         )}
                     </div>
                 </div>
             </div>
 
-            {/* Incoming Call Sheet */}
-            <AnimatePresence>
-                {incomingCall && (
-                    <motion.div
-                        initial={{ y: 100, opacity: 0 }}
-                        animate={{ y: 0, opacity: 1 }}
-                        exit={{ y: 100, opacity: 0 }}
-                        transition={{ type: "spring", stiffness: 300, damping: 28 }}
-                        className="mx-4 mb-4 rounded-3xl border border-emerald-500/30 bg-emerald-500/10 backdrop-blur-xl p-4"
-                    >
-                        <p className="font-semibold text-emerald-100">
-                            Incoming call from {incomingCall.caller?.name}
-                        </p>
-                        <div className="mt-3 flex gap-3">
-                            <button
-                                onClick={acceptCall}
-                                className="flex-1 rounded-full bg-emerald-500 hover:bg-emerald-600 active:scale-95 px-6 py-2.5 font-medium text-white transition-all"
-                            >
-                                Accept
-                            </button>
-                            <button
-                                onClick={rejectCall}
-                                className="flex-1 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 px-6 py-2.5 font-medium text-white transition-all"
-                            >
-                                Decline
-                            </button>
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* Controls — glass bar */}
-            <div className="pb-8 px-4" style={{ paddingBottom: "max(2rem, env(safe-area-inset-bottom, 0px))" }}>
-                <div className="flex items-center justify-center gap-4 mx-auto w-fit rounded-full bg-white/10 backdrop-blur-xl border border-white/10 px-4 py-3 shadow-lg">
+            {/* Controls Bar */}
+            <div
+                className="relative z-20 w-full pt-2 pb-6 px-4 flex justify-center bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent"
+                style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom, 0px))" }}
+            >
+                <div className="flex items-center justify-center gap-4 md:gap-6 rounded-full bg-slate-900/90 border border-slate-700/80 px-6 py-3.5 shadow-2xl backdrop-blur-xl">
                     <button
                         onClick={toggleMute}
-                        aria-label={isMuted ? "Unmute" : "Mute"}
-                        className={`rounded-full p-4 transition-all active:scale-90 ${isMuted ? "bg-red-500" : "bg-white/10 hover:bg-white/20"}`}
+                        aria-label={isMuted ? "Unmute Microphone" : "Mute Microphone"}
+                        className="flex flex-col items-center gap-1 group"
                     >
-                        {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
+                        <div
+                            className={`flex h-12 w-12 md:h-14 md:w-14 items-center justify-center rounded-full transition-all active:scale-90 shadow-md ${
+                                isMuted
+                                    ? "bg-red-600 text-white shadow-red-600/30"
+                                    : "bg-slate-800 text-slate-100 hover:bg-slate-700 border border-slate-700"
+                            }`}
+                        >
+                            {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
+                        </div>
+                        <span className="text-[10px] font-semibold text-slate-400 group-hover:text-slate-200">
+                            {isMuted ? "Unmute" : "Mute"}
+                        </span>
                     </button>
+
                     <button
                         onClick={toggleVideo}
-                        aria-label={isVideoOn ? "Turn off camera" : "Turn on camera"}
-                        className={`rounded-full p-4 transition-all active:scale-90 ${!isVideoOn ? "bg-red-500" : "bg-white/10 hover:bg-white/20"}`}
+                        aria-label={isVideoOn ? "Turn Off Camera" : "Turn On Camera"}
+                        className="flex flex-col items-center gap-1 group"
                     >
-                        {isVideoOn ? <Video size={22} /> : <VideoOff size={22} />}
+                        <div
+                            className={`flex h-12 w-12 md:h-14 md:w-14 items-center justify-center rounded-full transition-all active:scale-90 shadow-md ${
+                                !isVideoOn
+                                    ? "bg-red-600 text-white shadow-red-600/30"
+                                    : "bg-slate-800 text-slate-100 hover:bg-slate-700 border border-slate-700"
+                            }`}
+                        >
+                            {isVideoOn ? <Video size={22} /> : <VideoOff size={22} />}
+                        </div>
+                        <span className="text-[10px] font-semibold text-slate-400 group-hover:text-slate-200">
+                            {isVideoOn ? "Cam Off" : "Cam On"}
+                        </span>
                     </button>
+
                     <button
                         onClick={endCall}
-                        aria-label="End call"
-                        className="rounded-full bg-red-600 hover:bg-red-700 active:scale-90 p-4 transition-all"
+                        aria-label="End Call"
+                        className="flex flex-col items-center gap-1 group"
                     >
-                        <PhoneOff size={22} />
+                        <div className="flex h-12 w-12 md:h-14 md:w-14 items-center justify-center rounded-full bg-red-600 hover:bg-red-500 active:scale-90 text-white transition-all shadow-lg shadow-red-600/40">
+                            <PhoneOff size={22} />
+                        </div>
+                        <span className="text-[10px] font-semibold text-red-400 group-hover:text-red-300">
+                            End
+                        </span>
                     </button>
                 </div>
             </div>

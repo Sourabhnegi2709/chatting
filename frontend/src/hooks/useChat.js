@@ -85,9 +85,7 @@ export const useChat = () => {
                     });
                 });
 
-                if (!activeContactId && nextContacts[0]) {
-                    setActiveContactId(nextContacts[0].id);
-                }
+                // Do NOT auto-select first contact — user must explicitly pick one
             } catch (error) {
                 console.error('Could not load users', error);
             }
