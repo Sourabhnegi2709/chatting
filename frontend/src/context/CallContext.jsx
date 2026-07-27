@@ -16,10 +16,17 @@ export const CallProvider = ({ children }) => {
     const socketRef = useRef(null);
     const ringtoneAudioRef = useRef(null);
 
+    // True while the user is on the /call page in an active/ringing call.
+    // Lets us auto-decline a second incoming call instead of showing a
+    // confusing overlay on top of the active call screen.
+    const isCallActiveRef = useRef(false);
+    const setCallActive = useCallback((active) => {
+        isCallActiveRef.current = active;
+    }, []);
+
     const getUserId = (value) => value?.id || value?._id || value;
     const currentUserId = getUserId(user);
 
-    // Play Ringtone globally
     const playRingtone = useCallback(() => {
         if (!ringtoneAudioRef.current) {
             ringtoneAudioRef.current = new Audio("/sounds/ringtone.mp3");
@@ -28,7 +35,6 @@ export const CallProvider = ({ children }) => {
         ringtoneAudioRef.current.play().catch((e) => console.warn("Audio autoplay blocked:", e));
     }, []);
 
-    // Stop Ringtone
     const stopRingtone = useCallback(() => {
         if (ringtoneAudioRef.current) {
             ringtoneAudioRef.current.pause();
@@ -36,7 +42,6 @@ export const CallProvider = ({ children }) => {
         }
     }, []);
 
-    // Global Socket Setup
     useEffect(() => {
         if (!user || !currentUserId) return;
 
@@ -54,8 +59,12 @@ export const CallProvider = ({ children }) => {
         if (socket.connected) registerUser();
         else socket.once("connect", registerUser);
 
-        // Global incoming call event listener
         const handleIncomingCall = ({ callId, caller, offer }) => {
+            // Already on a call somewhere else -> auto-decline as busy.
+            if (isCallActiveRef.current) {
+                socket.emit("reject-call", { callId, reason: "busy" });
+                return;
+            }
             playRingtone();
             setIncomingCall({ callId, caller, offer });
         };
@@ -77,13 +86,11 @@ export const CallProvider = ({ children }) => {
         };
     }, [user, currentUserId, playRingtone, stopRingtone]);
 
-    // Accept Incoming Call
     const acceptIncomingCall = () => {
         stopRingtone();
         const callData = incomingCall;
         setIncomingCall(null);
 
-        // Navigate to the Call component page with the offer & caller info
         navigate("/call", {
             state: {
                 incomingCallData: callData,
@@ -92,7 +99,6 @@ export const CallProvider = ({ children }) => {
         });
     };
 
-    // Decline/Reject Incoming Call
     const rejectIncomingCall = () => {
         stopRingtone();
         if (incomingCall?.callId && socketRef.current?.connected) {
@@ -102,10 +108,9 @@ export const CallProvider = ({ children }) => {
     };
 
     return (
-        <CallContext.Provider value={{ socketRef, stopRingtone }}>
+        <CallContext.Provider value={{ socketRef, stopRingtone, setCallActive }}>
             {children}
 
-            {/* Global Floating Incoming Call Overlay (Appears on Home, Chat, etc.) */}
             <AnimatePresence>
                 {incomingCall && (
                     <motion.div
