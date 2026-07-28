@@ -57,13 +57,13 @@ const Call = () => {
 
     const playRingback = () => {
         if (!ringbackAudioRef.current) {
-            const audio = new Audio("/sounds/ringback.mp3");
+            const audio = new Audio("/sounds/ringtone.mp3");
             audio.loop = true;
             // Fall back to the shared ringtone file if ringback.mp3 isn't present
             audio.addEventListener(
                 "error",
                 () => {
-                    audio.src = "/sounds/ringtone.mp3";
+                    audio.src = "/sounds/ringback.mp3";
                     audio.play().catch((e) => console.warn("Audio autoplay blocked:", e));
                 },
                 { once: true }
