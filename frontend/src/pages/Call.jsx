@@ -63,7 +63,7 @@ const Call = () => {
             audio.addEventListener(
                 "error",
                 () => {
-                    audio.src = "/sounds/ringback.mp3";
+                    audio.src = "/sounds/ringtone.mp3";
                     audio.play().catch((e) => console.warn("Audio autoplay blocked:", e));
                 },
                 { once: true }
@@ -77,6 +77,7 @@ const Call = () => {
         if (ringbackAudioRef.current) {
             ringbackAudioRef.current.pause();
             ringbackAudioRef.current.currentTime = 0;
+            ringbackAudioRef.current = null;
         }
     }, []);
 
@@ -179,7 +180,7 @@ const Call = () => {
         pendingCandidatesRef.current = [];
         callStartedRef.current = false;
         currentCallIdRef.current = null;
-    }, [stopRingback, stopRingtone]);
+    }, [stopRingtone, stopRingback]);
 
     // Mark this page as "in a call" for CallContext (busy handling), and make
     // sure everything is released if the component unmounts any other way

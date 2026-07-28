@@ -29,7 +29,7 @@ export const CallProvider = ({ children }) => {
 
     const playRingtone = useCallback(() => {
         if (!ringtoneAudioRef.current) {
-            ringtoneAudioRef.current = new Audio("/sounds/ringtone.mp3");
+            ringtoneAudioRef.current = new Audio("/sounds/ringback.mp3");
             ringtoneAudioRef.current.loop = true;
         }
         ringtoneAudioRef.current.play().catch((e) => console.warn("Audio autoplay blocked:", e));
