@@ -1,3 +1,4 @@
+import { motion } from "framer-motion";
 import { cn } from "../../utils/cn";
 import Avatar from "../ui/Avatar";
 
@@ -6,33 +7,38 @@ const ChatItem = ({ contact, isActive, onClick }) => {
     const displayText = contact.lastMessage || lastMessage?.text || "No messages yet";
 
     return (
-        <button
+        <motion.button
             onClick={onClick}
+            whileHover={{ x: 2 }}
+            whileTap={{ scale: 0.98 }}
+            transition={{ type: "spring", stiffness: 400, damping: 30 }}
             className={cn(
-                "relative w-full flex items-center gap-3 p-3 rounded-2xl transition-all duration-150 text-left",
-                "active:scale-[0.98]",
-                isActive ? "bg-emerald-50" : "hover:bg-zinc-100"
+                "glass-grain relative w-full flex items-center gap-3 p-3 rounded-2xl text-left transition-colors duration-200",
+                isActive ? "glass-surface shadow-[0_10px_28px_rgba(16,185,129,0.12)]" : "hover:bg-white/50"
             )}
         >
-            {/* Active accent bar */}
-            <span
-                className={cn(
-                    "absolute left-0 top-1/2 -translate-y-1/2 w-1 rounded-full bg-emerald-500 transition-all duration-200",
-                    isActive ? "h-8 opacity-100" : "h-0 opacity-0"
-                )}
+            {/* Active accent bar, spring-animated instead of just toggled */}
+            <motion.span
+                initial={false}
+                animate={{ height: isActive ? 32 : 0, opacity: isActive ? 1 : 0 }}
+                transition={{ type: "spring", stiffness: 400, damping: 32 }}
+                className="absolute left-0 top-1/2 -translate-y-1/2 w-1 rounded-full bg-gradient-to-b from-emerald-400 to-violet-500"
             />
 
-            <Avatar src={contact.avatar} name={contact.name} size="md" status={contact.status} />
+            <div className="relative">
+                {isActive && <span className="animate-glow-pulse motion-reduce:animate-none absolute -inset-1 -z-10 rounded-full bg-emerald-400/25 blur-md" />}
+                <Avatar src={contact.avatar} name={contact.name} size="md" status={contact.status} />
+            </div>
 
             <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-[15px] font-semibold text-zinc-900 truncate">
+                    <h3 className="font-display text-[15px] font-semibold text-zinc-900 truncate">
                         {contact.name}
                     </h3>
                     {contact.lastMessageTime && (
                         <span
                             className={cn(
-                                "text-[11px] whitespace-nowrap flex-shrink-0",
+                                "font-glass-mono text-[10.5px] whitespace-nowrap flex-shrink-0",
                                 isActive ? "text-emerald-600 font-medium" : "text-zinc-400"
                             )}
                         >
@@ -47,11 +53,16 @@ const ChatItem = ({ contact, isActive, onClick }) => {
             </div>
 
             {contact.unreadCount > 0 && (
-                <div className="flex items-center justify-center min-w-[20px] h-5 px-1.5 bg-emerald-500 text-white text-[11px] font-semibold rounded-full flex-shrink-0">
+                <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 20 }}
+                    className="flex items-center justify-center min-w-[20px] h-5 px-1.5 bg-gradient-to-br from-emerald-500 to-emerald-600 text-white text-[11px] font-semibold rounded-full flex-shrink-0 shadow-[0_4px_10px_rgba(16,185,129,0.4)]"
+                >
                     {contact.unreadCount > 9 ? "9+" : contact.unreadCount}
-                </div>
+                </motion.div>
             )}
-        </button>
+        </motion.button>
     );
 };
 

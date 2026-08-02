@@ -10,25 +10,33 @@ const Sidebar = ({ contacts, activeContactId, onSelectContact, searchQuery, setS
     const { user, logout } = useAuth();
 
     return (
-        <div className="flex flex-col w-full h-full bg-white">
+        <div className="glass-surface glass-grain flex flex-col w-full h-full">
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-4">
+            <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3 }}
+                className="flex items-center justify-between px-4 py-4"
+            >
                 <div className="flex items-center gap-3 min-w-0">
-                    <Avatar src={user?.avatar} name={user?.name || "User"} size="md" status="online" />
+                    <div className="relative">
+                        <span className="animate-glow-pulse motion-reduce:animate-none absolute -inset-1 -z-10 rounded-full bg-emerald-400/25 blur-md" />
+                        <Avatar src={user?.avatar} name={user?.name || "User"} size="md" status="online" />
+                    </div>
                     <div className="min-w-0">
-                        <h3 className="text-sm font-semibold text-zinc-900 truncate">{user?.name || "User"}</h3>
-                        <p className="text-xs text-zinc-500 truncate">{user?.email || "No email"}</p>
+                        <h3 className="font-display text-sm font-semibold text-zinc-900 truncate">{user?.name || "User"}</h3>
+                        <p className="font-glass-mono text-[11px] text-zinc-500 truncate">{user?.email || "No email"}</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-1">
-                    <IconButton title="New chat" aria-label="New chat">
+                    <IconButton title="New chat" aria-label="New chat" className="shimmer-sweep">
                         <MessageSquarePlus size={20} />
                     </IconButton>
                     <IconButton onClick={logout} title="Logout" aria-label="Logout" variant="danger">
                         <LogOut size={20} />
                     </IconButton>
                 </div>
-            </div>
+            </motion.div>
 
             {/* Search */}
             <div className="px-4 pb-3">
@@ -37,7 +45,7 @@ const Sidebar = ({ contacts, activeContactId, onSelectContact, searchQuery, setS
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Search users..."
                 />
-                <p className="mt-2 px-1 text-xs text-zinc-400">
+                <p className="font-glass-mono mt-2 px-1 text-[11px] text-zinc-400">
                     {contacts.length === 1 ? "1 user" : `${contacts.length} users`}
                 </p>
             </div>
@@ -51,7 +59,7 @@ const Sidebar = ({ contacts, activeContactId, onSelectContact, searchQuery, setS
                                 key={contact.id}
                                 initial={{ opacity: 0, y: 8 }}
                                 animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: Math.min(i * 0.04, 0.4), duration: 0.2 }}
+                                transition={{ delay: Math.min(i * 0.04, 0.4), duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
                             >
                                 <ChatItem
                                     contact={contact}
@@ -62,10 +70,14 @@ const Sidebar = ({ contacts, activeContactId, onSelectContact, searchQuery, setS
                         ))}
                     </div>
                 ) : (
-                    <div className="flex flex-col items-center justify-center h-full text-center p-6">
-                        <p className="text-sm font-medium text-zinc-600 mb-1">No users found</p>
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="flex flex-col items-center justify-center h-full text-center p-6"
+                    >
+                        <p className="font-display text-sm font-medium text-zinc-600 mb-1">No users found</p>
                         <p className="text-xs text-zinc-400">Try a different search or check back later</p>
-                    </div>
+                    </motion.div>
                 )}
             </div>
         </div>

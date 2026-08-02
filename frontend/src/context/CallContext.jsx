@@ -1,10 +1,10 @@
 // src/context/CallContext.jsx
-import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
 import { PhoneIncoming, PhoneOff } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
-import { useAuth } from "./AuthContext";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { connectSocket } from "../services/socket";
+import { useAuth } from "./AuthContext";
 
 const CallContext = createContext();
 
@@ -13,8 +13,11 @@ export const CallProvider = ({ children }) => {
     const navigate = useNavigate();
 
     const [incomingCall, setIncomingCall] = useState(null);
+    const [callNotice, setCallNotice] = useState(null);
     const socketRef = useRef(null);
     const ringtoneAudioRef = useRef(null);
+    const activeIncomingCallIdRef = useRef(null);
+    const noticeTimerRef = useRef(null);
 
     // True while the user is on the /call page in an active/ringing call.
     // Lets us auto-decline a second incoming call instead of showing a
@@ -42,6 +45,25 @@ export const CallProvider = ({ children }) => {
         }
     }, []);
 
+    const clearIncomingCall = useCallback((callId) => {
+        if (callId && activeIncomingCallIdRef.current && activeIncomingCallIdRef.current !== callId) {
+            return false;
+        }
+        activeIncomingCallIdRef.current = null;
+        stopRingtone();
+        setIncomingCall(null);
+        return true;
+    }, [stopRingtone]);
+
+    const showCallToast = useCallback((message, duration = 2600) => {
+        if (!message) return;
+        if (noticeTimerRef.current) {
+            window.clearTimeout(noticeTimerRef.current);
+        }
+        setCallNotice(message);
+        noticeTimerRef.current = window.setTimeout(() => setCallNotice(null), duration);
+    }, []);
+
     useEffect(() => {
         if (!user || !currentUserId) return;
 
@@ -63,15 +85,18 @@ export const CallProvider = ({ children }) => {
             // Already on a call somewhere else -> auto-decline as busy.
             if (isCallActiveRef.current) {
                 socket.emit("reject-call", { callId, reason: "busy" });
+                showCallToast("The other person is busy right now.");
                 return;
             }
+            activeIncomingCallIdRef.current = callId;
             playRingtone();
             setIncomingCall({ callId, caller, offer });
         };
 
-        const handleCallCancelled = () => {
-            stopRingtone();
-            setIncomingCall(null);
+        const handleCallCancelled = ({ callId } = {}) => {
+            if (clearIncomingCall(callId)) {
+                showCallToast("The call was cancelled.");
+            }
         };
 
         socket.on("incoming-call", handleIncomingCall);
@@ -84,10 +109,11 @@ export const CallProvider = ({ children }) => {
             socket.off("call-rejected", handleCallCancelled);
             socket.off("call-ended", handleCallCancelled);
         };
-    }, [user, currentUserId, playRingtone, stopRingtone]);
+    }, [user, currentUserId, playRingtone, stopRingtone, clearIncomingCall, showCallToast]);
 
     const acceptIncomingCall = () => {
         stopRingtone();
+        activeIncomingCallIdRef.current = null;
         const callData = incomingCall;
         setIncomingCall(null);
 
@@ -101,15 +127,35 @@ export const CallProvider = ({ children }) => {
 
     const rejectIncomingCall = () => {
         stopRingtone();
+        activeIncomingCallIdRef.current = null;
         if (incomingCall?.callId && socketRef.current?.connected) {
             socketRef.current.emit("reject-call", { callId: incomingCall.callId });
         }
         setIncomingCall(null);
     };
 
+    useEffect(() => {
+        return () => {
+            if (noticeTimerRef.current) {
+                window.clearTimeout(noticeTimerRef.current);
+            }
+        };
+    }, []);
+
     return (
-        <CallContext.Provider value={{ socketRef, stopRingtone, setCallActive }}>
+        <CallContext.Provider value={{ socketRef, stopRingtone, setCallActive, showCallToast }}>
             {children}
+
+            {callNotice && (
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 20 }}
+                    className="fixed bottom-6 left-1/2 z-[10000] -translate-x-1/2 rounded-full border border-emerald-400/40 bg-slate-900/95 px-4 py-2 text-sm font-medium text-white shadow-xl backdrop-blur"
+                >
+                    {callNotice}
+                </motion.div>
+            )}
 
             <AnimatePresence>
                 {incomingCall && (

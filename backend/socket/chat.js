@@ -17,6 +17,25 @@ const activeCalls = new Map();
 const buildRoomId = (userId, contactId) => [userId, contactId].sort().join('_');
 const buildCallId = (userId, contactId) => [userId, contactId].sort().join('_');
 
+const emitCallEventToParticipants = (io, callData, eventName, payload = {}) => {
+    if (!callData?.callId) return;
+
+    const notifiedSocketIds = new Set();
+    const addSocketIds = (userId) => {
+        if (!userId) return;
+        const socketIds = userSocketMap.get(userId);
+        if (!socketIds?.size) return;
+        for (const sid of socketIds) notifiedSocketIds.add(sid);
+    };
+
+    addSocketIds(callData.callerId);
+    addSocketIds(callData.recipientId);
+
+    for (const sid of notifiedSocketIds) {
+        io.to(sid).emit(eventName, { callId: callData.callId, ...payload });
+    }
+};
+
 const addUserSocket = (userId, socketId) => {
     if (!userSocketMap.has(userId)) userSocketMap.set(userId, new Set());
     userSocketMap.get(userId).add(socketId);
@@ -223,7 +242,10 @@ const connectToSocket = async (server) => {
         socket.on('accept-call', ({ callId, answer }) => {
             console.log(`✅ Call accepted: ${callId}`);
 
-            if (!activeCalls.has(callId)) return;
+            if (!activeCalls.has(callId)) {
+                socket.emit('call-error', { callId, error: 'Call is no longer active' });
+                return;
+            }
 
             const callData = activeCalls.get(callId);
             callData.status = 'connected';
@@ -245,12 +267,16 @@ const connectToSocket = async (server) => {
         socket.on('reject-call', ({ callId, recipientUserId }) => {
             console.log(`❌ Call rejected: ${callId}`);
             const callData = activeCalls.get(callId);
-            const targetId = recipientUserId || callData?.callerId;
-            const targetSocketIds = userSocketMap.get(targetId);
-
-            if (targetSocketIds?.size) {
-                for (const sid of targetSocketIds) {
-                    io.to(sid).emit('call-rejected', { callId });
+            if (callData) {
+                callData.status = 'rejected';
+                emitCallEventToParticipants(io, callData, 'call-rejected', { reason: 'rejected' });
+            } else if (callId) {
+                const targetId = recipientUserId;
+                const targetSocketIds = userSocketMap.get(targetId);
+                if (targetSocketIds?.size) {
+                    for (const sid of targetSocketIds) {
+                        io.to(sid).emit('call-rejected', { callId, reason: 'rejected' });
+                    }
                 }
             }
 
@@ -271,17 +297,12 @@ const connectToSocket = async (server) => {
 
         socket.on('end-call', ({ callId, recipientUserId }) => {
             console.log(`📞 Call ended: ${callId}`);
-            const recipientSocketIds = userSocketMap.get(recipientUserId);
-            if (recipientSocketIds?.size) {
-                for (const sid of recipientSocketIds) {
-                    io.to(sid).emit('call-ended', { callId });
-                }
-            }
-
             if (activeCalls.has(callId)) {
                 const callData = activeCalls.get(callId);
                 const durationSeconds = Math.floor((new Date() - callData.startTime) / 1000);
                 console.log(`   Duration: ${durationSeconds} seconds`);
+
+                emitCallEventToParticipants(io, callData, 'call-ended', { durationSeconds });
 
                 Meeting.updateOne(
                     { callId },
@@ -289,6 +310,14 @@ const connectToSocket = async (server) => {
                 ).catch((err) => console.error('Error logging call end:', err));
 
                 activeCalls.delete(callId);
+                return;
+            }
+
+            const recipientSocketIds = userSocketMap.get(recipientUserId);
+            if (recipientSocketIds?.size) {
+                for (const sid of recipientSocketIds) {
+                    io.to(sid).emit('call-ended', { callId });
+                }
             }
         });
 

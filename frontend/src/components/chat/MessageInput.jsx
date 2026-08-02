@@ -1,7 +1,7 @@
+import EmojiPicker, { EmojiStyle, Theme } from "emoji-picker-react";
+import { AnimatePresence, motion } from "framer-motion";
 import { Mic, Plus, SendHorizonal, Smile, Square, X } from "lucide-react";
-import { useRef, useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import EmojiPicker, { Theme, EmojiStyle } from "emoji-picker-react";
+import { useEffect, useRef, useState } from "react";
 import IconButton from "../ui/IconButton";
 
 const MessageInput = ({ onSendMessage, onSendVoice }) => {
@@ -186,8 +186,10 @@ const MessageInput = ({ onSendMessage, onSendVoice }) => {
     // ========== RECORDING UI ==========
     if (isRecording) {
         return (
-            <div
-                className="flex items-center gap-3 px-3 py-2.5 bg-white border-t border-zinc-200"
+            <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="glass-surface glass-grain flex items-center gap-3 px-3 py-2.5"
                 style={{
                     paddingBottom: "max(0.625rem, env(safe-area-inset-bottom, 0px))",
                 }}
@@ -198,12 +200,12 @@ const MessageInput = ({ onSendMessage, onSendVoice }) => {
                 </IconButton>
 
                 {/* Recording indicator + timer */}
-                <div className="flex-1 flex items-center gap-3 bg-red-50 rounded-2xl px-4 py-2.5">
+                <div className="flex-1 flex items-center gap-3 bg-red-50/80 backdrop-blur-sm rounded-2xl px-4 py-2.5 border border-red-100">
                     <div className="relative">
                         <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
                         <div className="absolute inset-0 w-3 h-3 bg-red-500 rounded-full animate-ping opacity-40" />
                     </div>
-                    <span className="text-sm font-medium text-red-600 tabular-nums">
+                    <span className="font-glass-mono text-sm font-medium text-red-600 tabular-nums">
                         {formatTime(recordingTime)}
                     </span>
                     <span className="text-sm text-red-400">Recording...</span>
@@ -218,7 +220,7 @@ const MessageInput = ({ onSendMessage, onSendVoice }) => {
                 >
                     <Square size={18} fill="currentColor" />
                 </IconButton>
-            </div>
+            </motion.div>
         );
     }
 
@@ -233,8 +235,8 @@ const MessageInput = ({ onSendMessage, onSendVoice }) => {
                         initial={{ opacity: 0, y: 12, scale: 0.95 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 12, scale: 0.95 }}
-                        transition={{ duration: 0.15 }}
-                        className="absolute bottom-full left-2 mb-2 z-50 shadow-xl rounded-2xl overflow-hidden border border-zinc-200"
+                        transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                        className="glass-surface absolute bottom-full left-2 mb-2 z-50 shadow-2xl rounded-2xl overflow-hidden"
                     >
                         <EmojiPicker
                             onEmojiClick={onEmojiClick}
@@ -251,7 +253,7 @@ const MessageInput = ({ onSendMessage, onSendVoice }) => {
             </AnimatePresence>
 
             <div
-                className="flex items-end gap-1.5 px-3 py-2.5 bg-white border-t border-zinc-200"
+                className="glass-surface glass-grain flex items-end gap-1.5 px-3 py-2.5 shadow-[0_-14px_34px_rgba(15,23,42,0.05)]"
                 style={{
                     paddingBottom: "max(0.625rem, env(safe-area-inset-bottom, 0px))",
                 }}
@@ -271,7 +273,7 @@ const MessageInput = ({ onSendMessage, onSendVoice }) => {
                     </IconButton>
                 </div>
 
-                <div className="flex-1 flex items-end bg-zinc-100 rounded-2xl px-3.5 py-2 focus-within:ring-2 focus-within:ring-emerald-500/20 transition-shadow">
+                <div className="flex-1 flex items-end rounded-[1.15rem] border border-zinc-200/80 bg-gradient-to-br from-white/90 to-zinc-50/80 backdrop-blur-sm px-3.5 py-2 shadow-[0_10px_24px_rgba(15,23,42,0.06)] transition-all duration-200 focus-within:border-emerald-400/60 focus-within:ring-4 focus-within:ring-emerald-500/10">
                     <textarea
                         ref={textareaRef}
                         rows={1}
@@ -297,6 +299,7 @@ const MessageInput = ({ onSendMessage, onSendVoice }) => {
                                     onClick={handleSend}
                                     variant="solid"
                                     aria-label="Send message"
+                                    className="aurora-ring aurora-active shimmer-sweep bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-[0_10px_24px_rgba(16,185,129,0.25)]"
                                 >
                                     <SendHorizonal size={20} />
                                 </IconButton>
@@ -311,6 +314,7 @@ const MessageInput = ({ onSendMessage, onSendVoice }) => {
                                 <IconButton
                                     onClick={startRecording}
                                     aria-label="Voice message"
+                                    className="glass-surface shadow-[0_8px_20px_rgba(15,23,42,0.08)]"
                                 >
                                     <Mic size={22} />
                                 </IconButton>

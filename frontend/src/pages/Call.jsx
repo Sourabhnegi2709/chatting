@@ -18,13 +18,18 @@ const STUN_SERVERS = [
     { urls: ["stun:stun2.l.google.com:19302"] },
 ];
 
+const RTC_OPTIONS = {
+    iceServers: STUN_SERVERS,
+    sdpSemantics: "unified-plan",
+};
+
 const buildCallId = (id1, id2) => [id1, id2].sort().join("_");
 
 const Call = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { user } = useAuth();
-    const { socketRef, stopRingtone, setCallActive } = useCall();
+    const { socketRef, stopRingtone, setCallActive, showCallToast } = useCall();
 
     const contact = location.state?.contact;
     const acceptedIncomingCall = location.state?.incomingCallData;
@@ -111,7 +116,7 @@ const Call = () => {
     const createPeerConnection = useCallback(async (mediaStream) => {
         const stream = mediaStream || localStream || (await getMediaStream());
 
-        const peerConnection = new RTCPeerConnection({ iceServers: STUN_SERVERS });
+        const peerConnection = new RTCPeerConnection(RTC_OPTIONS);
 
         stream.getTracks().forEach((track) => {
             peerConnection.addTrack(track, stream);
@@ -175,6 +180,12 @@ const Call = () => {
             localStreamRef.current.getTracks().forEach((track) => track.stop());
             localStreamRef.current = null;
         }
+        if (localVideoRef.current) {
+            localVideoRef.current.srcObject = null;
+        }
+        if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = null;
+        }
         setLocalStream(null);
         setRemoteStream(null);
         pendingCandidatesRef.current = [];
@@ -221,22 +232,31 @@ const Call = () => {
                     await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
                     await flushPendingCandidates();
                     setCallStatus("Connecting...");
+                    showCallToast("Connected");
                 }
             } catch (err) {
                 console.error("Error setting remote description:", err);
             }
         };
 
-        const handleCallRejected = ({ reason } = {}) => {
+        const handleCallRejected = ({ callId, reason } = {}) => {
+            if (currentCallIdRef.current && callId && callId !== currentCallIdRef.current) {
+                return;
+            }
             stopRingback();
             setCallStatus(reason === "busy" ? "User is busy" : "Call declined");
+            showCallToast(reason === "busy" ? "User is busy" : "Call declined");
             cleanupCall();
             setTimeout(() => navigate(-1), 1500);
         };
 
-        const handleCallEnded = () => {
+        const handleCallEnded = ({ callId } = {}) => {
+            if (currentCallIdRef.current && callId && callId !== currentCallIdRef.current) {
+                return;
+            }
             stopRingback();
             setCallStatus("Call ended");
+            showCallToast("Call ended");
             cleanupCall();
             setTimeout(() => navigate(-1), 1000);
         };
@@ -266,7 +286,7 @@ const Call = () => {
             socket.off("call-ended", handleCallEnded);
             socket.off("ice-candidate", handleIceCandidate);
         };
-    }, [socketRef, stopRingback, cleanupCall, navigate, flushPendingCandidates]);
+    }, [socketRef, stopRingback, cleanupCall, navigate, flushPendingCandidates, showCallToast]);
 
     // Initialize Call Flow
     useEffect(() => {
