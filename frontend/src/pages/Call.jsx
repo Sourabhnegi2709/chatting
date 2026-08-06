@@ -3,6 +3,7 @@ import {
     ArrowLeft,
     Mic,
     MicOff,
+    Minimize2,
     PhoneOff,
     Video,
     VideoOff,
@@ -36,13 +37,16 @@ const Call = () => {
 
     const [isMuted, setIsMuted] = useState(false);
     const [isVideoOn, setIsVideoOn] = useState(true);
+    const [isMinimized, setIsMinimized] = useState(false);
     const [localStream, setLocalStream] = useState(null);
     const [remoteStream, setRemoteStream] = useState(null);
     const [callStatus, setCallStatus] = useState("Initializing...");
     const [error, setError] = useState(null);
+    const [videoBoxPosition, setVideoBoxPosition] = useState({ x: 0, y: 24 });
 
     const peerConnectionRef = useRef(null);
     const localVideoRef = useRef(null);
+    const localPreviewRef = useRef(null);
     const remoteVideoRef = useRef(null);
     const callStartedRef = useRef(false);
     const currentCallIdRef = useRef(null);
@@ -55,6 +59,8 @@ const Call = () => {
     const pendingCandidatesRef = useRef([]);
 
     const ringbackAudioRef = useRef(null);
+    const dragStateRef = useRef({ active: false, startX: 0, startY: 0, originX: 0, originY: 0 });
+    const callEndedRef = useRef(false);
 
     const getUserId = (value) => value?.id || value?._id || value;
     const currentUserId = getUserId(user);
@@ -110,6 +116,78 @@ const Call = () => {
             throw err;
         }
     }, []);
+
+    const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+    const updateDragPosition = useCallback((clientX, clientY) => {
+        const previewEl = localPreviewRef.current;
+        if (!previewEl) return;
+
+        const rect = previewEl.getBoundingClientRect();
+        const boxWidth = rect.width;
+        const boxHeight = rect.height;
+        const maxX = Math.max(12, window.innerWidth - boxWidth - 12);
+        const maxY = Math.max(12, window.innerHeight - boxHeight - 12);
+
+        const nextX = clamp(
+            dragStateRef.current.originX + (clientX - dragStateRef.current.startX),
+            12,
+            maxX
+        );
+        const nextY = clamp(
+            dragStateRef.current.originY + (clientY - dragStateRef.current.startY),
+            12,
+            maxY
+        );
+
+        setVideoBoxPosition({ x: nextX, y: nextY });
+    }, []);
+
+    const handlePointerDown = (event) => {
+        if (event.button !== 0) return;
+        const previewEl = localPreviewRef.current;
+        if (!previewEl) return;
+
+        dragStateRef.current = {
+            active: true,
+            startX: event.clientX,
+            startY: event.clientY,
+            originX: videoBoxPosition.x,
+            originY: videoBoxPosition.y,
+        };
+
+        previewEl.setPointerCapture?.(event.pointerId);
+        event.preventDefault();
+    };
+
+    const handlePointerMove = (event) => {
+        if (!dragStateRef.current.active) return;
+        updateDragPosition(event.clientX, event.clientY);
+    };
+
+    const handlePointerUp = () => {
+        if (!dragStateRef.current.active) return;
+        dragStateRef.current.active = false;
+    };
+
+    useEffect(() => {
+        window.addEventListener("pointermove", handlePointerMove);
+        window.addEventListener("pointerup", handlePointerUp);
+
+        return () => {
+            window.removeEventListener("pointermove", handlePointerMove);
+            window.removeEventListener("pointerup", handlePointerUp);
+        };
+    }, [handlePointerMove]);
+
+    useEffect(() => {
+        const previewEl = localPreviewRef.current;
+        if (!previewEl || videoBoxPosition.x !== 0) return;
+
+        const rect = previewEl.getBoundingClientRect();
+        const defaultX = Math.max(12, window.innerWidth - rect.width - 24);
+        setVideoBoxPosition({ x: defaultX, y: 24 });
+    }, [localPreviewRef, videoBoxPosition.x]);
 
     // Accepts an explicit stream so we NEVER re-request getUserMedia due to
     // React state not having applied yet (this was firing getUserMedia twice).
@@ -191,6 +269,9 @@ const Call = () => {
         pendingCandidatesRef.current = [];
         callStartedRef.current = false;
         currentCallIdRef.current = null;
+        setIsMuted(false);
+        setIsVideoOn(true);
+        setIsMinimized(false);
     }, [stopRingtone, stopRingback]);
 
     // Mark this page as "in a call" for CallContext (busy handling), and make
@@ -200,7 +281,7 @@ const Call = () => {
         setCallActive(true);
         return () => {
             setCallActive(false);
-            if (currentCallIdRef.current) {
+            if (currentCallIdRef.current && !callEndedRef.current) {
                 emitToSocket("end-call", {
                     callId: currentCallIdRef.current,
                     recipientUserId: contactUserId,
@@ -358,8 +439,10 @@ const Call = () => {
         }
     }, [acceptedIncomingCall, contact, contactUserId, currentUserId, user, getMediaStream, createPeerConnection, emitToSocket, flushPendingCandidates]);
 
-    const endCall = () => {
-        // Capture BEFORE cleanup — cleanupCall() clears currentCallIdRef to null.
+    const endCall = useCallback(() => {
+        if (callEndedRef.current) return;
+        callEndedRef.current = true;
+
         const callId = currentCallIdRef.current;
         const recipientUserId = contactUserId;
 
@@ -368,8 +451,11 @@ const Call = () => {
         if (callId) {
             emitToSocket("end-call", { callId, recipientUserId });
         }
+
+        setCallStatus("Call ended");
+        showCallToast("Call ended");
         navigate(-1);
-    };
+    }, [cleanupCall, contactUserId, emitToSocket, navigate, showCallToast]);
 
     const toggleMute = () => {
         if (!localStream) return;
@@ -437,9 +523,35 @@ const Call = () => {
                         </div>
                     )}
 
-                    <div className="absolute top-4 right-4 md:top-6 md:right-6 h-36 w-28 md:h-48 md:w-36 overflow-hidden rounded-2xl border-2 border-slate-700/80 bg-slate-950 shadow-2xl z-10 transition-all">
+                    <div
+                        ref={localPreviewRef}
+                        onPointerDown={handlePointerDown}
+                        style={{ left: `${videoBoxPosition.x}px`, top: `${videoBoxPosition.y}px` }}
+                        className={`absolute z-50 overflow-hidden rounded-2xl border-2 border-slate-700/80 bg-slate-950/95 shadow-2xl transition-all ${isMinimized ? "h-20 w-28" : "h-36 w-28 md:h-48 md:w-36"}`}
+                    >
+                        <div className="absolute inset-x-0 top-0 h-8 cursor-grab bg-slate-950/60" />
+                        <div className="absolute right-2 top-2 z-20 flex items-center justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={(event) => {
+                                    event.stopPropagation();
+                                    setIsMinimized((prev) => !prev);
+                                }}
+                                aria-label={isMinimized ? "Restore video preview" : "Minimize video preview"}
+                                className="rounded-full bg-slate-900/90 p-2 text-slate-200 hover:bg-slate-800 transition-colors"
+                            >
+                                <Minimize2 size={16} />
+                            </button>
+                        </div>
+
                         {localStream && isVideoOn ? (
-                            <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full object-cover scale-x-[-1]" />
+                            <video
+                                ref={localVideoRef}
+                                autoPlay
+                                playsInline
+                                muted
+                                className={`h-full w-full object-cover ${isMinimized ? "scale-95" : "scale-100"}`}
+                            />
                         ) : (
                             <div className="flex h-full w-full flex-col items-center justify-center bg-slate-900 text-slate-400">
                                 <VideoOff size={20} className="mb-1" />

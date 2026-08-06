@@ -54,9 +54,9 @@ const ChatWindow = ({ activeContact, onSendMessage, onBack }) => {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                    className="flex-1 min-h-0 overflow-hidden flex flex-col"
+                    className="flex-1 min-h-0 overflow-y-auto flex flex-col"
                 >
-                    <div className="flex-1 min-h-0 overflow-hidden">
+                    <div className="flex-1 min-h-0 overflow-y-auto">
                         <MessageArea messages={activeContact?.messages || []} />
                     </div>
                     <div className="shrink-0">

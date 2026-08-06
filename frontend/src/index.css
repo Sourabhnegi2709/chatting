@@ -23,6 +23,54 @@ body {
   background: radial-gradient(circle at top left, #fdf2f8 0%, #f8fafc 30%, #eef2ff 100%);
 }
 
+.chat-area-pattern {
+  position: relative;
+  background-color: #eef2f7;
+  overflow: visible;
+}
+
+.chat-area-pattern::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(75,85,99,0.05), rgba(75,85,99,0.05) 1px, transparent 1px, transparent 24px),
+    repeating-linear-gradient(90deg, rgba(75,85,99,0.05), rgba(75,85,99,0.05) 1px, transparent 1px, transparent 24px),
+    radial-gradient(circle at 15% 18%, rgba(148,163,184,0.12), transparent 20%),
+    radial-gradient(circle at 85% 12%, rgba(148,163,184,0.10), transparent 18%),
+    radial-gradient(circle at 25% 88%, rgba(148,163,184,0.08), transparent 20%);
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.chat-area-pattern::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0));
+  pointer-events: none;
+}
+
+.chat-area-pattern::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.1),
+    rgba(255, 255, 255, 0.1) 1px,
+    transparent 1px,
+    transparent 24px
+  );
+  opacity: 0.14;
+  pointer-events: none;
+}
+
+.chat-area-pattern > .relative.z-10 {
+  position: relative;
+  z-index: 1;
+}
+
 * {
   box-sizing: border-box;
 }
