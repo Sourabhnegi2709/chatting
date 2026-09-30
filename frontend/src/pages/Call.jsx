@@ -67,29 +67,40 @@ const Call = () => {
     const contactUserId = getUserId(contact);
 
     const playRingback = () => {
-        if (!ringbackAudioRef.current) {
-            const audio = new Audio("/sounds/ringtone.mp3");
-            audio.loop = true;
-            // Fall back to the shared ringtone file if ringback.mp3 isn't present
-            audio.addEventListener(
-                "error",
-                () => {
-                    audio.src = "/sounds/ringtone.mp3";
-                    audio.play().catch((e) => console.warn("Audio autoplay blocked:", e));
-                },
-                { once: true }
-            );
-            ringbackAudioRef.current = audio;
+        const existing = ringbackAudioRef.current;
+        if (existing) {
+            existing.play().catch((e) => console.warn("Audio autoplay blocked:", e));
+            return;
         }
-        ringbackAudioRef.current.play().catch((e) => console.warn("Audio autoplay blocked:", e));
+
+        const audio = new Audio("/sounds/ringtone.mp3");
+        audio.loop = true;
+        audio.addEventListener(
+            "error",
+            () => {
+                audio.src = "/sounds/ringtone.mp3";
+                audio.play().catch((e) => console.warn("Audio autoplay blocked:", e));
+            },
+            { once: true }
+        );
+        ringbackAudioRef.current = audio;
+        audio.play().catch((e) => console.warn("Audio autoplay blocked:", e));
     };
 
     const stopRingback = useCallback(() => {
-        if (ringbackAudioRef.current) {
-            ringbackAudioRef.current.pause();
-            ringbackAudioRef.current.currentTime = 0;
-            ringbackAudioRef.current = null;
+        const audio = ringbackAudioRef.current;
+        if (!audio) return;
+
+        try {
+            audio.pause();
+            audio.currentTime = 0;
+            audio.src = "";
+            audio.load();
+        } catch (error) {
+            console.warn("Unable to stop ringback cleanly:", error);
         }
+
+        ringbackAudioRef.current = null;
     }, []);
 
     const emitToSocket = useCallback((event, data) => {
@@ -212,10 +223,25 @@ const Call = () => {
                 stopRingback();
                 stopRingtone();
                 setCallStatus("Connected");
-            } else if (state === "failed") {
+            } else if (state === "failed" || state === "closed") {
                 stopRingback();
                 stopRingtone();
-                setCallStatus("Connection failed");
+                setCallStatus(state === "closed" ? "Call ended" : "Connection failed");
+            } else if (state === "connecting") {
+                setCallStatus("Connecting...");
+            }
+        };
+
+        peerConnection.oniceconnectionstatechange = () => {
+            const state = peerConnection.iceConnectionState;
+            if (state === "connected" || state === "completed") {
+                stopRingback();
+                stopRingtone();
+                setCallStatus("Connected");
+            } else if (state === "failed" || state === "closed") {
+                stopRingback();
+                stopRingtone();
+                setCallStatus(state === "closed" ? "Call ended" : "Connection failed");
             }
         };
 
@@ -324,7 +350,9 @@ const Call = () => {
             if (currentCallIdRef.current && callId && callId !== currentCallIdRef.current) {
                 return;
             }
+            callEndedRef.current = true;
             stopRingback();
+            stopRingtone();
             setCallStatus(reason === "busy" ? "User is busy" : "Call declined");
             showCallToast(reason === "busy" ? "User is busy" : "Call declined");
             cleanupCall();
@@ -335,7 +363,9 @@ const Call = () => {
             if (currentCallIdRef.current && callId && callId !== currentCallIdRef.current) {
                 return;
             }
+            callEndedRef.current = true;
             stopRingback();
+            stopRingtone();
             setCallStatus("Call ended");
             showCallToast("Call ended");
             cleanupCall();
@@ -446,6 +476,8 @@ const Call = () => {
         const callId = currentCallIdRef.current;
         const recipientUserId = contactUserId;
 
+        stopRingback();
+        stopRingtone();
         cleanupCall();
 
         if (callId) {
@@ -455,7 +487,7 @@ const Call = () => {
         setCallStatus("Call ended");
         showCallToast("Call ended");
         navigate(-1);
-    }, [cleanupCall, contactUserId, emitToSocket, navigate, showCallToast]);
+    }, [cleanupCall, contactUserId, emitToSocket, navigate, showCallToast, stopRingback, stopRingtone]);
 
     const toggleMute = () => {
         if (!localStream) return;

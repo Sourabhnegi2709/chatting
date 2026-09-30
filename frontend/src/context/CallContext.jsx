@@ -39,10 +39,19 @@ export const CallProvider = ({ children }) => {
     }, []);
 
     const stopRingtone = useCallback(() => {
-        if (ringtoneAudioRef.current) {
-            ringtoneAudioRef.current.pause();
-            ringtoneAudioRef.current.currentTime = 0;
+        const audio = ringtoneAudioRef.current;
+        if (!audio) return;
+
+        try {
+            audio.pause();
+            audio.currentTime = 0;
+            audio.src = "";
+            audio.load();
+        } catch (error) {
+            console.warn("Unable to stop ringtone cleanly:", error);
         }
+
+        ringtoneAudioRef.current = null;
     }, []);
 
     const clearIncomingCall = useCallback((callId) => {
